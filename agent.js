@@ -145,6 +145,9 @@ export async function runTurn(history, userParts, onEvent) {
     if (text) outputs.push({ type: "text", text });
     if (calls.length === 0) {
       history.push({ role: "model", parts: respParts });
+      if (outputs.length === 0) {
+        outputs.push({ type: "text", text: "..." });
+      }
       return outputs;
     }
     history.push({ role: "model", parts: respParts });

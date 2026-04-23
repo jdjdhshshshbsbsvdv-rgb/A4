@@ -119,19 +119,56 @@ function isMentionedOrReplied(m, msg) {
   return false;
 }
 
-async function downloadIncomingMedia(m) {
+const GEMINI_INLINE_MIMES = new Set([
+  "image/png","image/jpeg","image/jpg","image/webp","image/gif","image/heic","image/heif",
+  "audio/wav","audio/mp3","audio/mpeg","audio/aac","audio/ogg","audio/opus","audio/flac",
+  "video/mp4","video/mpeg","video/mov","video/avi","video/x-flv","video/mpg","video/webm","video/wmv","video/3gpp","video/quicktime",
+  "application/pdf",
+]);
+
+const TEXT_LIKE_MIMES = /^(text\/|application\/(json|xml|x-yaml|yaml|javascript|x-javascript|typescript|x-typescript|x-sh|x-shellscript|x-python|x-php|x-ruby|x-perl|sql|graphql))/i;
+
+const TEXT_LIKE_EXTS = new Set([
+  "txt","md","markdown","csv","tsv","log","json","xml","yaml","yml","html","htm","css","scss","less",
+  "js","mjs","cjs","jsx","ts","tsx","py","rb","php","go","rs","java","kt","kts","swift","c","h","cpp","hpp","cc","cs",
+  "sh","bash","zsh","fish","ps1","bat","cmd","sql","graphql","gql","env","ini","toml","conf","cfg","properties",
+  "vue","svelte","astro","r","lua","dart","scala","pl","pm","ex","exs","erl","clj","hs","ml","fs","jl","nim","zig",
+]);
+
+function extOf(name = "") {
+  const i = name.lastIndexOf(".");
+  return i >= 0 ? name.slice(i + 1).toLowerCase() : "";
+}
+
+async function extractIncomingMedia(m) {
   const msg = m.message;
   const media = msg?.imageMessage || msg?.videoMessage || msg?.audioMessage || msg?.stickerMessage || msg?.documentMessage;
   if (!media) return null;
+  const fileName = media.fileName || media.title || "";
+  let mimeType = media.mimetype || "application/octet-stream";
+  if (mimeType.includes(";")) mimeType = mimeType.split(";")[0].trim();
+  let buf;
   try {
-    const buf = await downloadMediaMessage(m, "buffer", {}, { logger, reuploadRequest: undefined });
-    let mimeType = media.mimetype || "application/octet-stream";
-    if (mimeType.includes(";")) mimeType = mimeType.split(";")[0].trim();
-    return { data: buf.toString("base64"), mimeType };
+    buf = await downloadMediaMessage(m, "buffer", {}, { logger, reuploadRequest: undefined });
   } catch (e) {
     console.error("media dl failed:", e.message);
-    return null;
+    return { textOnly: `(تعذّر تحميل المرفق${fileName ? `: ${fileName}` : ""})` };
   }
+  const ext = extOf(fileName);
+  const isTextLike = TEXT_LIKE_MIMES.test(mimeType) || TEXT_LIKE_EXTS.has(ext);
+  if (isTextLike) {
+    let txt = "";
+    try { txt = buf.toString("utf8"); } catch {}
+    if (txt.length > 60000) txt = txt.slice(0, 60000) + "\n... (مقطوع)";
+    const header = `[ملف نصي${fileName ? ` "${fileName}"` : ""} ${mimeType || ""}]`;
+    return { textOnly: `${header}\n\`\`\`\n${txt}\n\`\`\`` };
+  }
+  if (GEMINI_INLINE_MIMES.has(mimeType.toLowerCase())) {
+    return { inline: { data: buf.toString("base64"), mimeType } };
+  }
+  // Unsupported binary doc — describe instead of sending bytes
+  const sizeKb = Math.round(buf.length / 1024);
+  return { textOnly: `(المستخدم بعت ملف${fileName ? ` "${fileName}"` : ""} نوع ${mimeType}, حجم ${sizeKb}KB — غير مدعوم للقراءة المباشرة)` };
 }
 
 async function handleMessage(sock, m) {
@@ -149,11 +186,12 @@ async function handleMessage(sock, m) {
     if (!isMentionedOrReplied(m, msg)) return;
   }
 
-  const mediaPart = await downloadIncomingMedia(m);
-  if (!text.trim() && !mediaPart) return;
+  const extracted = await extractIncomingMedia(m);
+  if (!text.trim() && !extracted) return;
 
   const sender = m.key.participant || jid;
-  console.log(`${C.cyan}${sender}:${C.reset} ${text}${mediaPart ? ` [+${mediaPart.mimeType}]` : ""}`);
+  const tag = extracted?.inline ? `[+${extracted.inline.mimeType}]` : extracted?.textOnly ? "[+text]" : "";
+  console.log(`${C.cyan}${sender}:${C.reset} ${text} ${tag}`);
 
   const history = SESSIONS.get(jid) || [];
 
@@ -168,7 +206,9 @@ async function handleMessage(sock, m) {
     }
     userParts.push({ text: cleaned || text });
   }
-  if (mediaPart) userParts.push({ inlineData: mediaPart });
+  if (extracted?.textOnly) userParts.push({ text: extracted.textOnly });
+  if (extracted?.inline) userParts.push({ inlineData: extracted.inline });
+  if (!userParts.length) userParts.push({ text: "(رسالة فارغة)" });
 
   let outputs;
   try {
@@ -186,14 +226,26 @@ async function handleMessage(sock, m) {
   if (history.length > MAX_HISTORY * 2) history.splice(0, history.length - MAX_HISTORY * 2);
   SESSIONS.set(jid, history);
 
+  const sentFiles = [];
   for (let i = 0; i < outputs.length; i++) {
     const o = outputs[i];
-    if (o.type === "text" && o.text.trim()) {
-      await sock.sendMessage(jid, { text: o.text }, { quoted: m });
-    } else if (o.type === "media") {
-      await sendMedia(sock, jid, o, m);
+    try {
+      if (o.type === "text" && o.text.trim()) {
+        await sock.sendMessage(jid, { text: o.text }, { quoted: m });
+      } else if (o.type === "media") {
+        const ok = await sendMedia(sock, jid, o, m);
+        if (ok) sentFiles.push(o.path);
+      }
+    } catch (e) {
+      console.error("send error:", e.message);
+      try { await sock.sendMessage(jid, { text: `(خطأ ف الإرسال: ${e.message})` }, { quoted: m }); } catch {}
     }
     if (i < outputs.length - 1) await sleep(SEND_DELAY_MS);
+  }
+
+  // Cleanup generated/downloaded files so they don't pile up
+  for (const p of sentFiles) {
+    try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch {}
   }
 
   await sock.sendPresenceUpdate("paused", jid).catch(() => {});
@@ -205,13 +257,13 @@ async function sendMedia(sock, jid, o, quoted) {
   const p = o.path;
   if (!fs.existsSync(p)) {
     await sock.sendMessage(jid, { text: `(الملف ضايع: ${p})` }, { quoted });
-    return;
+    return false;
   }
   const stat = fs.statSync(p);
   if (stat.size > MAX_FILE_SIZE) {
     const mb = (stat.size / 1024 / 1024).toFixed(1);
     await sock.sendMessage(jid, { text: `الملف كبير بزاف (${mb} MB). الحد الأقصى ديال البوت هو 500 MB.` }, { quoted });
-    return;
+    return false;
   }
   const ext = path.extname(p).toLowerCase();
 
@@ -236,6 +288,7 @@ async function sendMedia(sock, jid, o, quoted) {
   } else {
     await sock.sendMessage(jid, { document: src, fileName: path.basename(p) }, { quoted });
   }
+  return true;
 }
 
 console.log(`${C.magenta}عمر — WhatsApp Bot (Baileys)${C.reset}`);
