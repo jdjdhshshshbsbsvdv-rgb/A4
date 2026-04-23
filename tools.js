@@ -12,7 +12,61 @@ export const VIDEOS_DIR = path.resolve("videos");
 export const AUDIO_DIR = path.resolve("audio");
 export const DOWNLOADS_DIR = path.resolve("downloads");
 export const APKS_DIR = path.resolve("apks");
-for (const d of [IMAGES_DIR, VIDEOS_DIR, AUDIO_DIR, DOWNLOADS_DIR, APKS_DIR]) fs.mkdirSync(d, { recursive: true });
+export const CODE_DIR = path.resolve("code");
+for (const d of [IMAGES_DIR, VIDEOS_DIR, AUDIO_DIR, DOWNLOADS_DIR, APKS_DIR, CODE_DIR]) fs.mkdirSync(d, { recursive: true });
+
+const CODE_EXT_MAP = {
+  javascript: "js", js: "js", node: "js",
+  typescript: "ts", ts: "ts",
+  jsx: "jsx", tsx: "tsx",
+  python: "py", py: "py",
+  java: "java",
+  kotlin: "kt", kt: "kt",
+  swift: "swift",
+  c: "c",
+  "c++": "cpp", cpp: "cpp", cxx: "cpp",
+  "c#": "cs", csharp: "cs", cs: "cs",
+  go: "go", golang: "go",
+  rust: "rs", rs: "rs",
+  ruby: "rb", rb: "rb",
+  php: "php",
+  perl: "pl",
+  bash: "sh", shell: "sh", sh: "sh", zsh: "sh",
+  powershell: "ps1", ps1: "ps1",
+  batch: "bat", bat: "bat",
+  html: "html", htm: "html",
+  css: "css", scss: "scss", less: "less",
+  sql: "sql",
+  json: "json",
+  yaml: "yml", yml: "yml",
+  xml: "xml",
+  toml: "toml",
+  ini: "ini",
+  markdown: "md", md: "md",
+  dart: "dart",
+  scala: "scala",
+  lua: "lua",
+  r: "r",
+  matlab: "m",
+  vue: "vue",
+  svelte: "svelte",
+  graphql: "graphql", gql: "gql",
+  dockerfile: "Dockerfile",
+  makefile: "Makefile",
+  text: "txt", txt: "txt", plain: "txt",
+};
+
+export async function sendCodeFile({ code, language, filename }) {
+  if (!code || !String(code).trim()) return { ok: false, error: "empty code" };
+  const lang = String(language || "text").toLowerCase().trim();
+  const ext = CODE_EXT_MAP[lang] || "txt";
+  const isSpecialName = ext === "Dockerfile" || ext === "Makefile";
+  const safe = String(filename || "snippet").replace(/[^a-zA-Z0-9_\-]/g, "").slice(0, 40) || "snippet";
+  const name = isSpecialName ? ext : `${safe}.${ext}`;
+  const out = path.join(CODE_DIR, name);
+  fs.writeFileSync(out, String(code), "utf8");
+  return { ok: true, path: rel(out), language: lang, ext };
+}
 
 const APKEEP_BIN = path.resolve("bin/apkeep");
 

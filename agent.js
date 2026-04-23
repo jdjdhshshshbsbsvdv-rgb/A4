@@ -3,6 +3,7 @@ import {
   nanoBananaImage, aiLabsImage, bratVideo,
   socialDownload, toSticker, textToSpeech,
   webSearch, lyrics, weather, fetchUrl, getApk, aljazeeraNews,
+  sendCodeFile,
 } from "./tools.js";
 
 if (!process.env.AI_INTEGRATIONS_GEMINI_BASE_URL || !process.env.AI_INTEGRATIONS_GEMINI_API_KEY) {
@@ -34,6 +35,7 @@ export const PERSONA = `أنت عمر، شاب مغربي ودود وذكي من
 - fetchUrl: لقراءة محتوى أي رابط ويب (مقالات، صفحات، يوتيوب...). استعملها قبل ما تجاوب على أسئلة على روابط.
 - getApk: لمّا المستخدم يطلب تطبيق أندرويد (APK)، مثلاً "بعت ليا واتساب" أو "تيليجرام apk" أو "حمل ليا تطبيق X". تقدر تعطيها اسم التطبيق بالإنجليزية أو معرف الباكدج (com.example.app). كتجيب APK من APKPure مباشرة بدون حساب جوجل.
 - aljazeeraNews: لمّا المستخدم يطلب أخبار عاجلة، الأخبار العربية، أخبار الشرق الأوسط، أو يقول "الجزيرة"، "أش الجديد"، "آخر الأخبار". كتجيب العناوين العاجلة والتغطية المباشرة من aljazeera.net مباشرة. بعد ما تستعملها، لخص الأخبار للمستخدم بالدارجة بشكل واضح ومرتب.
+- sendCodeFile: قاعدة مهمة جدا — كل مرة كتبغي تبعث كود برمجة (أكثر من 5 أسطر، أو أي ملف كامل، أو أي script)، خاصك تستعمل هاد الأداة وتبعتو كملف بالامتداد المناسب حسب اللغة (js, py, java, html, css, sql, sh, json...). متبعتش الكود فالنص العادي. غير الأمثلة القصيرة (سطر ولا سطرين) ممكن تبعتهم inline. عطي اسم ملف وصفي قصير (snake_case أو camelCase). بعد ما تبعت الملف، تقدر تزيد شرح قصير بالنص.
 المنطق فوق كل شيء: فكر شنو طلب المستخدم بالضبط، واختار الأداة المناسبة، أو ماتستعمل حتى وحدة وجاوب بنص فقط. تذكر السياق ديال المحادثة وما تعاودش نفس الأداة بدون داعي.`;
 
 export const tools = [{
@@ -95,10 +97,16 @@ export const tools = [{
       }, required: ["query"] } },
     { name: "aljazeeraNews", description: "Fetch the latest Arabic breaking news from Al Jazeera (aljazeera.net): main headline, live blog updates, and top headlines. Use when the user asks about current Arab world / Middle East news, breaking news, ash-sharq al-awsat, akhbar, ajial, jazeera, etc. No parameters needed.",
       parameters: { type: Type.OBJECT, properties: {} } },
+    { name: "sendCodeFile", description: "Send programming code as a properly named file with the correct extension based on language (js, ts, py, java, html, css, sql, sh, json, etc). REQUIRED whenever returning code longer than ~5 lines or any complete script/file. Do NOT paste long code in plain text — always use this tool.",
+      parameters: { type: Type.OBJECT, properties: {
+        code: { type: Type.STRING, description: "The full source code as plain text." },
+        language: { type: Type.STRING, description: "Programming language name: javascript, typescript, python, java, kotlin, swift, c, cpp, csharp, go, rust, ruby, php, bash, powershell, html, css, sql, json, yaml, xml, dart, lua, r, vue, svelte, dockerfile, makefile, etc." },
+        filename: { type: Type.STRING, description: "Short descriptive base name without extension, ascii letters/digits/underscore only (e.g. hello_world, app, server)." },
+      }, required: ["code", "language", "filename"] } },
   ],
 }];
 
-const impl = { nanoBananaImage, aiLabsImage, bratVideo, socialDownload, toSticker, textToSpeech, webSearch, lyrics, weather, fetchUrl, getApk, aljazeeraNews };
+const impl = { nanoBananaImage, aiLabsImage, bratVideo, socialDownload, toSticker, textToSpeech, webSearch, lyrics, weather, fetchUrl, getApk, aljazeeraNews, sendCodeFile };
 
 const PRO_TRIGGERS = /(حلل|اشرح|فسر|قارن|كود|برمج|debug|analyze|reasoning|explain|why|كيفاش|علاش|why|compare|solve|حل|رياضيات|math|algorithm|خوارزمي|architect|design)/i;
 
