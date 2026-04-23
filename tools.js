@@ -57,6 +57,38 @@ const CODE_EXT_MAP = {
   text: "txt", txt: "txt", plain: "txt",
 };
 
+export async function carbonCode({ code, language, filename, theme, background }) {
+  if (!code || !String(code).trim()) return { ok: false, error: "empty code" };
+  const safe = String(filename || "code").replace(/[^a-zA-Z0-9_\-]/g, "").slice(0, 40) || "code";
+  const out = path.join(IMAGES_DIR, `${safe}_carbon.png`);
+  const themes = ["dracula", "monokai", "nord", "one-dark", "synthwave-84", "night-owl", "panda-syntax", "shades-of-purple", "vscode", "material", "oceanic-next"];
+  const chosenTheme = themes.includes(String(theme || "").toLowerCase()) ? String(theme).toLowerCase() : "dracula";
+  try {
+    const r = await axios.post("https://carbonara.solopov.dev/api/cook", {
+      code: String(code),
+      backgroundColor: background || "#1F816D",
+      theme: chosenTheme,
+      fontSize: "14px",
+      language: language || "auto",
+      windowControls: true,
+      paddingVertical: "48px",
+      paddingHorizontal: "48px",
+      lineNumbers: true,
+      dropShadow: true,
+      widthAdjustment: true,
+    }, {
+      responseType: "arraybuffer",
+      timeout: 45000,
+      headers: { "content-type": "application/json" },
+    });
+    if (!r.data || r.data.byteLength < 1000) return { ok: false, error: "carbon api returned empty" };
+    fs.writeFileSync(out, Buffer.from(r.data));
+    return { ok: true, path: rel(out), theme: chosenTheme };
+  } catch (e) {
+    return { ok: false, error: `carbon failed: ${e.response?.status || e.message}` };
+  }
+}
+
 export async function sendCodeFile({ code, language, filename }) {
   if (!code || !String(code).trim()) return { ok: false, error: "empty code" };
   const lang = String(language || "text").toLowerCase().trim();
