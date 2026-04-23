@@ -23,45 +23,49 @@ const IG_HANDLE = "omarcharaft";
 const IG_URL = `https://instagram.com/${IG_HANDLE}`;
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
+function detectLang(text) {
+  const t = String(text || "");
+  if (/[\u0600-\u06FF]/.test(t)) {
+    if (/(واش|بزاف|دابا|كاين|باغي|بغيت|ديال|هاد|راه|خويا|نتا|نتي|شنو|علاش|فين|كيفاش|مزيان|عافاك|صافي|يلاه|عندي|نعطيك|نقدر)/i.test(t)) return "darija";
+    return "ar";
+  }
+  if (/\b(le|la|les|de|du|des|je|tu|nous|vous|est|sont|c'est|merci|bonjour|salut|pour|avec|mais|si|que|qui|où|quand|comment|pourquoi)\b/i.test(t)) return "fr";
+  if (/\b(el|la|los|las|de|que|por|para|con|pero|esto|hola|gracias|donde|cuando|como|porque|muy|bien|si|no)\b/i.test(t)) return "es";
+  return "en";
+}
+
 function pickInstaTagline(text) {
-  const t = String(text || "").toLowerCase();
-  const pools = {
-    code: [
-      `\n\n👨‍💻 إيلا عجبك الكود، تابعني على إنستا: ${IG_URL}`,
-      `\n\n💻 لكثر من tips ديال البرمجة، تابعني هنا: ${IG_URL}`,
-      `\n\n⚡ تيهموك هاد الأمور؟ اكتيف معايا فإنستا: ${IG_URL}`,
+  const lang = detectLang(text);
+  const taglines = {
+    darija: [
+      "تابعني على إنستا",
+      "اكتيف معايا فإنستا",
+      "خلي معايا فإنستا",
+      "لكثر من المحتوى تابعني فإنستا",
     ],
-    media: [
-      `\n\n📸 إيلا عجبك المحتوى، تابعني على إنستا: ${IG_URL}`,
-      `\n\n🎬 لكثر من المحتوى الزوين، فإنستا: ${IG_URL}`,
-      `\n\n✨ تابعني فإنستا باش تشوف الجديد: ${IG_URL}`,
+    ar: [
+      "تابعني على إنستغرام",
+      "للمزيد تابعني على إنستغرام",
+      "ابقَ على تواصل عبر إنستغرام",
     ],
-    music: [
-      `\n\n🎵 لكثر من الموسيقى والذوق، تابعني فإنستا: ${IG_URL}`,
-      `\n\n🎧 إيلا عجبك المود، اكتيف معايا فإنستا: ${IG_URL}`,
+    fr: [
+      "Suis-moi sur Instagram",
+      "Pour plus de contenu, suis-moi sur Instagram",
+      "Rejoins-moi sur Instagram",
     ],
-    news: [
-      `\n\n📰 لكثر من الأخبار والتحليلات، تابعني فإنستا: ${IG_URL}`,
-      `\n\n🌍 خلي معايا فإنستا باش ما تفوتش الجديد: ${IG_URL}`,
+    es: [
+      "Sígueme en Instagram",
+      "Para más contenido, sígueme en Instagram",
     ],
-    info: [
-      `\n\n💡 إيلا عجبك المحتوى، تابعني على إنستا: ${IG_URL}`,
-      `\n\n📚 لكثر من المعلومات، فإنستا: ${IG_URL}`,
-    ],
-    default: [
-      `\n\n✨ تابعني على إنستا: ${IG_URL}`,
-      `\n\n📲 إيلا عجبك ها أنا: ${IG_URL}`,
-      `\n\n💫 شوف الجديد ديالي على إنستا: ${IG_URL}`,
+    en: [
+      "Follow me on Instagram",
+      "For more content, follow me on Instagram",
+      "Catch me on Instagram",
     ],
   };
-  let cat = "default";
-  if (/(```|function|const |def |import |class |error|bug|debug|كود|برمج|سكريبت)/i.test(text)) cat = "code";
-  else if (/(صورة|فيديو|sticker|ستيكر|generated|حملت|أرسلت)/i.test(text)) cat = "media";
-  else if (/(أغنية|موسيقى|music|song|نوم|relax|مطر|sound|صوت)/i.test(text)) cat = "music";
-  else if (/(خبر|أخبار|الجزيرة|breaking|news|عاجل)/i.test(text)) cat = "news";
-  else if (/(معلوم|طقس|weather|تعريف|شرح|تاريخ|ثقاف)/i.test(text)) cat = "info";
-  const pool = pools[cat];
-  return pool[Math.floor(Math.random() * pool.length)];
+  const pool = taglines[lang] || taglines.en;
+  const line = pool[Math.floor(Math.random() * pool.length)];
+  return `\n\n${line}\n${IG_URL}`;
 }
 const C = { cyan: "\x1b[36m", green: "\x1b[32m", yellow: "\x1b[33m", magenta: "\x1b[35m", dim: "\x1b[2m", reset: "\x1b[0m" };
 const logger = pino({ level: "silent" });
