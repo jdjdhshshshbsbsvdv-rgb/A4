@@ -6,6 +6,7 @@ import FormData from "form-data";
 import { GoogleGenAI, Modality } from "@google/genai";
 import { createCanvas } from "@napi-rs/canvas";
 import { Jimp } from "jimp";
+import gplay from "google-play-scraper";
 
 export const IMAGES_DIR = path.resolve("images");
 export const VIDEOS_DIR = path.resolve("videos");
@@ -318,23 +319,139 @@ export async function textToSpeech({ text, lang, filename }) {
   }
 }
 
+const KNOWN_PACKAGES = {
+  whatsapp: "com.whatsapp",
+  "whatsapp business": "com.whatsapp.w4b",
+  telegram: "org.telegram.messenger",
+  "telegram x": "org.thunderdog.challegram",
+  signal: "org.thoughtcrime.securesms",
+  instagram: "com.instagram.android",
+  facebook: "com.facebook.katana",
+  messenger: "com.facebook.orca",
+  twitter: "com.twitter.android",
+  x: "com.twitter.android",
+  tiktok: "com.zhiliaoapp.musically",
+  snapchat: "com.snapchat.android",
+  youtube: "com.google.android.youtube",
+  "youtube music": "com.google.android.apps.youtube.music",
+  spotify: "com.spotify.music",
+  netflix: "com.netflix.mediaclient",
+  shazam: "com.shazam.android",
+  vlc: "org.videolan.vlc",
+  chrome: "com.android.chrome",
+  firefox: "org.mozilla.firefox",
+  opera: "com.opera.browser",
+  brave: "com.brave.browser",
+  duckduckgo: "com.duckduckgo.mobile.android",
+  zoom: "us.zoom.videomeetings",
+  discord: "com.discord",
+  reddit: "com.reddit.frontpage",
+  pinterest: "com.pinterest",
+  linkedin: "com.linkedin.android",
+  uber: "com.ubercab",
+  careem: "com.careem.acma",
+  inDriver: "sinet.startup.inDriver",
+  indrive: "sinet.startup.inDriver",
+  "google maps": "com.google.android.apps.maps",
+  waze: "com.waze",
+  paypal: "com.paypal.android.p2pmobile",
+  amazon: "com.amazon.mShop.android.shopping",
+  aliexpress: "com.alibaba.aliexpresshd",
+  jumia: "com.jumia.android",
+  shein: "com.zzkko",
+  temu: "com.einnovation.temu",
+  cashplus: "ma.cashplus.cashplus",
+  capcut: "com.lemon.lvoverseas",
+  canva: "com.canva.editor",
+  duolingo: "com.duolingo",
+  shahid: "net.mbc.shahidTV",
+  "yango": "com.yandex.yango",
+  yango: "com.yandex.yango",
+  "google translate": "com.google.android.apps.translate",
+  translate: "com.google.android.apps.translate",
+  gmail: "com.google.android.gm",
+  "google drive": "com.google.android.apps.docs",
+  "google photos": "com.google.android.apps.photos",
+  pubg: "com.tencent.ig",
+  "pubg mobile": "com.tencent.ig",
+  "free fire": "com.dts.freefireth",
+  freefire: "com.dts.freefireth",
+  minecraft: "com.mojang.minecraftpe",
+  "clash of clans": "com.supercell.clashofclans",
+  "clash royale": "com.supercell.clashroyale",
+  "candy crush": "com.king.candycrushsaga",
+  termux: "com.termux",
+  "kine master": "com.nexstreaming.app.kinemasterfree",
+  kinemaster: "com.nexstreaming.app.kinemasterfree",
+  "alight motion": "com.alightcreative.motion",
+  picsart: "com.picsart.studio",
+  vsco: "com.vsco.cam",
+  lightroom: "com.adobe.lrmobile",
+  "imo": "com.imo.android.imoim",
+  imo: "com.imo.android.imoim",
+};
+
+function isPkgId(s) {
+  return /^[a-z][\w]*(\.[a-z][\w]*)+$/i.test(String(s || "").trim());
+}
+
 async function searchApkPurePackage(query) {
-  if (/^[a-z][\w]*(\.[a-z][\w]*)+$/i.test(query.trim())) return query.trim();
-  const r = await axios.get("https://apkpure.net/search", {
-    params: { q: query },
-    timeout: 20000,
-    headers: {
-      "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-      "accept-language": "en-US,en;q=0.9",
-    },
-    maxRedirects: 5,
-  });
-  const html = String(r.data || "");
-  const matches = [...html.matchAll(/href="\/([^\/"]+)\/([a-zA-Z][\w]*(?:\.[a-zA-Z][\w]*)+)(?:\/|")/g)];
-  for (const m of matches) {
-    const pkg = m[2];
-    if (pkg.split(".").length >= 2 && !pkg.startsWith("apkpure")) return pkg;
+  const q = String(query).trim();
+  if (isPkgId(q)) return q;
+  const known = KNOWN_PACKAGES[q.toLowerCase()];
+  if (known) return known;
+
+  // Primary: Google Play search (most reliable source for app IDs)
+  try {
+    const results = await gplay.search({ term: q, num: 5, throttle: 5 });
+    if (results && results.length) {
+      const exact = results.find(r => r.title?.toLowerCase() === q.toLowerCase());
+      const pick = exact || results[0];
+      if (pick?.appId) return pick.appId;
+    }
+  } catch (e) {
+    console.error("gplay search failed:", e.message);
   }
+
+  // Try DuckDuckGo HTML to find an apkpure page revealing the package id
+  try {
+    const r = await axios.get("https://html.duckduckgo.com/html/", {
+      params: { q: `${q} apkpure site:apkpure.com OR site:apkpure.net` },
+      headers: {
+        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+        "accept-language": "en-US,en;q=0.9",
+      },
+      timeout: 20000,
+    });
+    const html = String(r.data || "");
+    const re = /apkpure\.(?:com|net)\/[^\/"\s]+\/([a-zA-Z][\w]*(?:\.[a-zA-Z][\w]*)+)/g;
+    let m;
+    while ((m = re.exec(html))) {
+      const pkg = m[1];
+      if (pkg.split(".").length >= 2 && !/^apkpure/i.test(pkg)) return pkg;
+    }
+  } catch {}
+
+  // Fallback: Google search result snippet
+  try {
+    const r = await axios.get("https://www.google.com/search", {
+      params: { q: `${q} android package id site:apkpure.com OR site:play.google.com` },
+      headers: {
+        "user-agent": "Mozilla/5.0 (Linux; Android 10; SM-A205U) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Mobile Safari/537.36",
+        "accept-language": "en-US,en;q=0.9",
+      },
+      timeout: 20000,
+      validateStatus: s => s < 500,
+    });
+    const html = String(r.data || "");
+    const re = /(?:id=|apkpure\.(?:com|net)\/[^\/"\s]+\/)([a-z][\w]*(?:\.[a-z][\w]*)+)/gi;
+    let m;
+    while ((m = re.exec(html))) {
+      const pkg = m[1];
+      if (pkg.split(".").length >= 2 && !/^apkpure/i.test(pkg)) return pkg;
+    }
+  } catch {}
+
   return null;
 }
 
@@ -342,19 +459,36 @@ const UA_DESKTOP = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, l
 
 async function resolveApkUrl(pkg) {
   const url = `https://d.apkpure.com/b/APK/${encodeURIComponent(pkg)}?version=latest`;
-  const head = await axios.head(url, {
-    maxRedirects: 5,
-    timeout: 30000,
-    headers: { "user-agent": UA_DESKTOP, "accept-language": "en-US,en;q=0.9" },
-    validateStatus: s => s >= 200 && s < 400,
-  });
-  let filename = `${pkg}.apk`;
-  const cd = head.headers["content-disposition"];
-  if (cd) {
-    const m = cd.match(/filename\*?=(?:UTF-8'')?["']?([^"';]+)["']?/i);
-    if (m) filename = decodeURIComponent(m[1]).replace(/[\/\\]/g, "_").trim();
+  // Use curl because apkpure blocks Node's TLS fingerprint with 403
+  let headers = "";
+  try {
+    headers = execFileSync("curl", [
+      "-sIL",
+      "-A", UA_DESKTOP,
+      "-H", "accept-language: en-US,en;q=0.9",
+      "-H", "referer: https://apkpure.com/",
+      "--max-time", "30",
+      url,
+    ], { timeout: 35000 }).toString();
+  } catch (e) {
+    throw new Error(`apkpure resolve failed: ${e.message}`);
   }
-  return { url, filename, size: parseInt(head.headers["content-length"] || "0", 10) };
+  let filename = `${pkg}.apk`;
+  let size = 0;
+  // Parse last response block
+  const blocks = headers.split(/\r?\n\r?\n/).filter(Boolean);
+  const last = blocks[blocks.length - 1] || headers;
+  const cdMatch = last.match(/content-disposition:\s*[^\r\n]*filename\*?=(?:UTF-8'')?["']?([^"';\r\n]+)["']?/i);
+  if (cdMatch) filename = decodeURIComponent(cdMatch[1]).replace(/[\/\\]/g, "_").trim();
+  const clMatch = last.match(/content-length:\s*(\d+)/i);
+  if (clMatch) size = parseInt(clMatch[1], 10);
+
+  // Find final URL after redirects
+  let finalUrl = url;
+  const locMatches = [...headers.matchAll(/^location:\s*(\S+)/gim)];
+  if (locMatches.length) finalUrl = locMatches[locMatches.length - 1][1].trim();
+
+  return { url: finalUrl, filename, size };
 }
 
 function downloadWithAria2(url, outDir, filename) {

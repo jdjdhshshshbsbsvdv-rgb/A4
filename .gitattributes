@@ -4,3 +4,5 @@ apks/com.kiloo.subwaysurf.xapk filter=lfs diff=lfs merge=lfs -text
 apks/com.spotify.music.xapk filter=lfs diff=lfs merge=lfs -text
 apks/com.whatsapp.w4b.xapk filter=lfs diff=lfs merge=lfs -text
 downloads/ytvideo.f614.mp4.part filter=lfs diff=lfs merge=lfs -text
+apks/CapCut[[:space:]]-[[:space:]]Video[[:space:]]Editor_17.6.0_APKPure.apk filter=lfs diff=lfs merge=lfs -text
+apks/Telegram_12.6.3_APKPure.apk filter=lfs diff=lfs merge=lfs -text
