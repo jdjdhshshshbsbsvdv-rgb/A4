@@ -22,7 +22,7 @@ export const PERSONA = `أنت عمر، شاب مغربي ودود وذكي من
 - لا تستعمل أبداً الشرطة السفلية ولا الشرطة العادية داخل أي كلمة.
 - لا تنادي أي أداة إلا إذا كانت ضرورية فعلاً للطلب. إذا المستخدم غير كيهضر معاك أو كيعلق، جاوبه بنص فقط.
 - إيلا المستخدم لصق رابط (يوتيوب، تيكتوك، إنستا، فيسبوك، تويتر، رديت، ساوندكلاود...) وطلب صراحة "نزّل" أو "حمّل" أو "ابعث الفيديو/الصوت": استعمل socialDownload.
-- قاعدة مهمة جدا: إيلا المستخدم طلب منك فيديو/أغنية/صوت من غير ما يعطيك رابط (مثلا "جيب ليا فيديو ديال صوت المطر"، "بغيت أغنية فلانة"، "بعت ليا فيديو ديال X")، خاصك أنت تقلب فيوتيوب بنفسك: أول حاجة استعمل webSearch بـ "site:youtube.com <الموضوع>"، خود أول رابط يوتيوب من النتائج، ثم مباشرة استعمل socialDownload على ديك الرابط. ممنوع تقول للمستخدم "بعت ليا الرابط" أو "ما عنديش فيديوهات" — أنت كتقدر تقلب وتحمل بنفسك. إيلا طلب صوت فقط (أغنية، مقطع صوتي، MP3)، عطي type="audio" لـ socialDownload.
+- قاعدة مهمة جدا: إيلا المستخدم طلب منك فيديو/أغنية/صوت من غير ما يعطيك رابط (مثلا "جيب ليا فيديو ديال صوت المطر"، "بغيت أغنية فلانة"، "بعت ليا فيديو ديال X")، خاصك أنت تقلب فيوتيوب بنفسك بهاد الخطوات بالضبط: 1) استعمل webSearch مرة وحدة بـ "site:youtube.com <الموضوع>". 2) خود أول رابط يبدا بـ youtube.com/watch أو youtu.be من النتائج. 3) مباشرة ناد socialDownload على ديك الرابط. ممنوع تعاود webSearch مرة أخرى ولا تخدم بأكثر من بحث واحد. ممنوع تقول للمستخدم "بعت ليا الرابط" أو "ما عنديش فيديوهات" — أنت كتقدر تقلب وتحمل بنفسك. إيلا طلب صوت فقط (أغنية، MP3)، عطي type="audio" لـ socialDownload. إيلا webSearch فشل ولا ما لقا والو، قول للمستخدم بصراحة وحط اقتراحات.
 - إيلا المستخدم لصق أي رابط (يوتيوب بما فيه) وطلب ملخص، شرح، تحليل، ولا سؤال على المحتوى: استعمل fetchUrl مرة وحدة فقط، ثم لخص بنفسك على أساس النتيجة. حتى لو النتيجة قصيرة، خدم بيها وما تناديش webSearch ولا أي أداة أخرى.
 - ممنوع تنادي webSearch لتلخيص رابط. webSearch غير لمّا ما كاينش رابط أصلاً.
 - nanoBananaImage: للصور (وصف إنجليزي مفصل). إذا المستخدم بعت ليك صورة وطلب تعديل، شوف الصورة فالمحادثة وأعد توليد بوصف يطابق التعديل.
@@ -151,7 +151,14 @@ export async function runTurn(history, userParts, onEvent) {
   const model = pickModel(parts, history);
   onEvent?.({ type: "model", name: model });
 
+  let iter = 0;
+  const MAX_ITER = 6;
+  const callCounts = {};
   while (true) {
+    if (++iter > MAX_ITER) {
+      outputs.push({ type: "text", text: "ما قدرتش نكمل العملية، عاود المحاولة بطريقة أخرى." });
+      return outputs;
+    }
     const res = await ai.models.generateContent({
       model,
       contents: history,
@@ -173,9 +180,14 @@ export async function runTurn(history, userParts, onEvent) {
     for (const c of calls) {
       const fc = c.functionCall;
       onEvent?.({ type: "tool", name: fc.name });
+      callCounts[fc.name] = (callCounts[fc.name] || 0) + 1;
       let out;
-      try { out = await impl[fc.name](fc.args || {}); }
-      catch (e) { out = { ok: false, error: String(e.message || e) }; }
+      if (callCounts[fc.name] > 3) {
+        out = { ok: false, error: `tool '${fc.name}' called too many times. stop and reply with text or try a different approach.` };
+      } else {
+        try { out = await impl[fc.name](fc.args || {}); }
+        catch (e) { out = { ok: false, error: String(e.message || e) }; }
+      }
       if (out.ok) {
         if (out.path) outputs.push({ type: "media", path: out.path, tool: fc.name });
         if (out.results) outputs.push({ type: "text", text: out.results.map((r, i) => `${i + 1}. ${r.title}\n${r.url}\n${r.snippet}`).join("\n\n") });

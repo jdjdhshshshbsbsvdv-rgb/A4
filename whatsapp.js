@@ -19,7 +19,50 @@ const SESSION_DIR = "auth_session";
 const SESSIONS = new Map();
 const MAX_HISTORY = 30;
 const SEND_DELAY_MS = 1500;
+const IG_HANDLE = "omarcharaft";
+const IG_URL = `https://instagram.com/${IG_HANDLE}`;
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+function pickInstaTagline(text) {
+  const t = String(text || "").toLowerCase();
+  const pools = {
+    code: [
+      `\n\n👨‍💻 إيلا عجبك الكود، تابعني على إنستا: ${IG_URL}`,
+      `\n\n💻 لكثر من tips ديال البرمجة، تابعني هنا: ${IG_URL}`,
+      `\n\n⚡ تيهموك هاد الأمور؟ اكتيف معايا فإنستا: ${IG_URL}`,
+    ],
+    media: [
+      `\n\n📸 إيلا عجبك المحتوى، تابعني على إنستا: ${IG_URL}`,
+      `\n\n🎬 لكثر من المحتوى الزوين، فإنستا: ${IG_URL}`,
+      `\n\n✨ تابعني فإنستا باش تشوف الجديد: ${IG_URL}`,
+    ],
+    music: [
+      `\n\n🎵 لكثر من الموسيقى والذوق، تابعني فإنستا: ${IG_URL}`,
+      `\n\n🎧 إيلا عجبك المود، اكتيف معايا فإنستا: ${IG_URL}`,
+    ],
+    news: [
+      `\n\n📰 لكثر من الأخبار والتحليلات، تابعني فإنستا: ${IG_URL}`,
+      `\n\n🌍 خلي معايا فإنستا باش ما تفوتش الجديد: ${IG_URL}`,
+    ],
+    info: [
+      `\n\n💡 إيلا عجبك المحتوى، تابعني على إنستا: ${IG_URL}`,
+      `\n\n📚 لكثر من المعلومات، فإنستا: ${IG_URL}`,
+    ],
+    default: [
+      `\n\n✨ تابعني على إنستا: ${IG_URL}`,
+      `\n\n📲 إيلا عجبك ها أنا: ${IG_URL}`,
+      `\n\n💫 شوف الجديد ديالي على إنستا: ${IG_URL}`,
+    ],
+  };
+  let cat = "default";
+  if (/(```|function|const |def |import |class |error|bug|debug|كود|برمج|سكريبت)/i.test(text)) cat = "code";
+  else if (/(صورة|فيديو|sticker|ستيكر|generated|حملت|أرسلت)/i.test(text)) cat = "media";
+  else if (/(أغنية|موسيقى|music|song|نوم|relax|مطر|sound|صوت)/i.test(text)) cat = "music";
+  else if (/(خبر|أخبار|الجزيرة|breaking|news|عاجل)/i.test(text)) cat = "news";
+  else if (/(معلوم|طقس|weather|تعريف|شرح|تاريخ|ثقاف)/i.test(text)) cat = "info";
+  const pool = pools[cat];
+  return pool[Math.floor(Math.random() * pool.length)];
+}
 const C = { cyan: "\x1b[36m", green: "\x1b[32m", yellow: "\x1b[33m", magenta: "\x1b[35m", dim: "\x1b[2m", reset: "\x1b[0m" };
 const logger = pino({ level: "silent" });
 
@@ -227,11 +270,19 @@ async function handleMessage(sock, m) {
   SESSIONS.set(jid, history);
 
   const sentFiles = [];
+  let lastTextIdx = -1;
+  let hasMedia = false;
+  for (let i = outputs.length - 1; i >= 0; i--) {
+    if (lastTextIdx === -1 && outputs[i].type === "text" && outputs[i].text && outputs[i].text.trim()) lastTextIdx = i;
+    if (outputs[i].type === "media") hasMedia = true;
+  }
   for (let i = 0; i < outputs.length; i++) {
     const o = outputs[i];
     try {
       if (o.type === "text" && o.text.trim()) {
-        await sock.sendMessage(jid, { text: o.text }, { quoted: m });
+        let txt = o.text;
+        if (i === lastTextIdx) txt += pickInstaTagline(txt);
+        await sock.sendMessage(jid, { text: txt }, { quoted: m });
       } else if (o.type === "media") {
         const ok = await sendMedia(sock, jid, o, m);
         if (ok) sentFiles.push(o.path);
@@ -241,6 +292,14 @@ async function handleMessage(sock, m) {
       try { await sock.sendMessage(jid, { text: `(خطأ ف الإرسال: ${e.message})` }, { quoted: m }); } catch {}
     }
     if (i < outputs.length - 1) await sleep(SEND_DELAY_MS);
+  }
+
+  if (lastTextIdx === -1 && hasMedia) {
+    try {
+      await sleep(SEND_DELAY_MS);
+      const ctxText = outputs.map(o => o.path || "").join(" ");
+      await sock.sendMessage(jid, { text: pickInstaTagline(ctxText).trim() }, { quoted: m });
+    } catch {}
   }
 
   // Cleanup generated/downloaded files so they don't pile up
