@@ -286,9 +286,54 @@ async function sendMedia(sock, jid, o, quoted) {
   } else if (ext === ".apk" || ext === ".xapk") {
     await sock.sendMessage(jid, { document: src, mimetype: "application/vnd.android.package-archive", fileName: path.basename(p) }, { quoted });
   } else {
-    await sock.sendMessage(jid, { document: src, fileName: path.basename(p) }, { quoted });
+    const docMime = guessDocMime(ext);
+    await sock.sendMessage(jid, { document: src, mimetype: docMime, fileName: path.basename(p) }, { quoted });
   }
   return true;
+}
+
+const DOC_MIME_MAP = {
+  ".js": "text/javascript", ".mjs": "text/javascript", ".cjs": "text/javascript",
+  ".ts": "text/x-typescript", ".tsx": "text/x-typescript", ".jsx": "text/jsx",
+  ".py": "text/x-python",
+  ".java": "text/x-java-source",
+  ".kt": "text/x-kotlin", ".kts": "text/x-kotlin",
+  ".swift": "text/x-swift",
+  ".c": "text/x-c", ".h": "text/x-c",
+  ".cpp": "text/x-c++", ".hpp": "text/x-c++", ".cc": "text/x-c++", ".cxx": "text/x-c++",
+  ".cs": "text/x-csharp",
+  ".go": "text/x-go",
+  ".rs": "text/x-rust",
+  ".rb": "text/x-ruby",
+  ".php": "application/x-httpd-php",
+  ".pl": "text/x-perl", ".pm": "text/x-perl",
+  ".sh": "application/x-sh", ".bash": "application/x-sh", ".zsh": "application/x-sh",
+  ".ps1": "application/x-powershell",
+  ".bat": "application/x-bat", ".cmd": "application/x-bat",
+  ".html": "text/html", ".htm": "text/html",
+  ".css": "text/css", ".scss": "text/x-scss", ".less": "text/x-less",
+  ".sql": "application/sql",
+  ".json": "application/json",
+  ".yaml": "application/x-yaml", ".yml": "application/x-yaml",
+  ".xml": "application/xml",
+  ".toml": "application/toml",
+  ".ini": "text/plain", ".env": "text/plain", ".conf": "text/plain", ".cfg": "text/plain",
+  ".md": "text/markdown", ".markdown": "text/markdown",
+  ".dart": "application/dart",
+  ".scala": "text/x-scala",
+  ".lua": "text/x-lua",
+  ".r": "text/x-r",
+  ".m": "text/x-matlab",
+  ".vue": "text/x-vue",
+  ".svelte": "text/x-svelte",
+  ".graphql": "application/graphql", ".gql": "application/graphql",
+  ".txt": "text/plain", ".log": "text/plain", ".csv": "text/csv", ".tsv": "text/tab-separated-values",
+  ".zip": "application/zip", ".tar": "application/x-tar", ".gz": "application/gzip",
+};
+
+function guessDocMime(ext) {
+  if (DOC_MIME_MAP[ext]) return DOC_MIME_MAP[ext];
+  return "text/plain";
 }
 
 console.log(`${C.magenta}عمر — WhatsApp Bot (Baileys)${C.reset}`);
