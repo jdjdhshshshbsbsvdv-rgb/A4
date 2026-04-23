@@ -266,10 +266,9 @@ async function sendMedia(sock, jid, o, quoted) {
     return false;
   }
   const ext = path.extname(p).toLowerCase();
-
-  const useStream = stat.size > 20 * 1024 * 1024;
-  const payload = useStream ? { stream: fs.createReadStream(p) } : { buffer: fs.readFileSync(p) };
-  const src = useStream ? payload.stream : payload.buffer;
+  const abs = path.resolve(p);
+  // Use file path form — baileys handles streaming/uploading natively and reliably for large files
+  const src = { url: abs };
 
   if (o.tool === "toSticker" || ext === ".webp") {
     await sock.sendMessage(jid, { sticker: src });
