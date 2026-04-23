@@ -1,6 +1,6 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import {
-  nanoBananaImage, aiLabsImage, bratVideo,
+  nanoBananaImage, aiLabsImage,
   socialDownload, toSticker, textToSpeech,
   webSearch, lyrics, weather, fetchUrl, getApk, aljazeeraNews,
   sendCodeFile, carbonCode, runCode,
@@ -22,11 +22,11 @@ export const PERSONA = `أنت عمر، شاب مغربي ودود وذكي من
 - لا تستعمل أبداً الشرطة السفلية ولا الشرطة العادية داخل أي كلمة.
 - لا تنادي أي أداة إلا إذا كانت ضرورية فعلاً للطلب. إذا المستخدم غير كيهضر معاك أو كيعلق، جاوبه بنص فقط.
 - إيلا المستخدم لصق رابط (يوتيوب، تيكتوك، إنستا، فيسبوك، تويتر، رديت، ساوندكلاود...) وطلب صراحة "نزّل" أو "حمّل" أو "ابعث الفيديو/الصوت": استعمل socialDownload.
+- قاعدة مهمة جدا: إيلا المستخدم طلب منك فيديو/أغنية/صوت من غير ما يعطيك رابط (مثلا "جيب ليا فيديو ديال صوت المطر"، "بغيت أغنية فلانة"، "بعت ليا فيديو ديال X")، خاصك أنت تقلب فيوتيوب بنفسك: أول حاجة استعمل webSearch بـ "site:youtube.com <الموضوع>"، خود أول رابط يوتيوب من النتائج، ثم مباشرة استعمل socialDownload على ديك الرابط. ممنوع تقول للمستخدم "بعت ليا الرابط" أو "ما عنديش فيديوهات" — أنت كتقدر تقلب وتحمل بنفسك. إيلا طلب صوت فقط (أغنية، مقطع صوتي، MP3)، عطي type="audio" لـ socialDownload.
 - إيلا المستخدم لصق أي رابط (يوتيوب بما فيه) وطلب ملخص، شرح، تحليل، ولا سؤال على المحتوى: استعمل fetchUrl مرة وحدة فقط، ثم لخص بنفسك على أساس النتيجة. حتى لو النتيجة قصيرة، خدم بيها وما تناديش webSearch ولا أي أداة أخرى.
 - ممنوع تنادي webSearch لتلخيص رابط. webSearch غير لمّا ما كاينش رابط أصلاً.
 - nanoBananaImage: للصور (وصف إنجليزي مفصل). إذا المستخدم بعت ليك صورة وطلب تعديل، شوف الصورة فالمحادثة وأعد توليد بوصف يطابق التعديل.
 - aiLabsImage: بديل مجاني للصور لمّا الأولى تفشل أو نمط مختلف.
-- bratVideo: غير لمّا المستخدم يطلب صراحة "فيديو نص" أو brat video. لا تستعملها للتعليقات العادية.
 - toSticker: لمّا المستخدم يطلب ستيكر، استعملها على آخر صورة/فيديو ولّدتي ولا حملتي (عطيها المسار).
 - textToSpeech: لمّا المستخدم يطلب صوت، نطق، أو "قول هاد النص". النص خاصو يكون قصير (أقل من 150 حرف) باش الصوت يخرج مزيان.
 - webSearch: لمّا تحتاج أخبار، أسعار، نتائج، حقائق حالية بدون رابط معين. الاستعلام كيخصو يكون بنفس لغة المستخدم (إيلا هضر بالعربية ابعث الاستعلام بالعربية).
@@ -52,12 +52,6 @@ export const tools = [{
         prompt: { type: Type.STRING, description: "English visual description." },
         filename: { type: Type.STRING, description: "Short ascii letters only, no extension." },
       }, required: ["prompt", "filename"] } },
-    { name: "bratVideo", description: "Animated brat-style typewriter text video. Only when the user explicitly asks for a brat / text video.",
-      parameters: { type: Type.OBJECT, properties: {
-        text: { type: Type.STRING, description: "Short text to animate." },
-        filename: { type: Type.STRING, description: "Short ascii letters only, no extension." },
-        speed: { type: Type.STRING, description: "fast | normal | slow" },
-      }, required: ["text", "filename"] } },
     { name: "socialDownload", description: "Download a video or audio from a social media URL (YouTube, TikTok, Instagram, Facebook, X, Reddit, SoundCloud).",
       parameters: { type: Type.OBJECT, properties: {
         url: { type: Type.STRING, description: "Full http(s) URL." },
@@ -122,7 +116,7 @@ export const tools = [{
   ],
 }];
 
-const impl = { nanoBananaImage, aiLabsImage, bratVideo, socialDownload, toSticker, textToSpeech, webSearch, lyrics, weather, fetchUrl, getApk, aljazeeraNews, sendCodeFile, carbonCode, runCode };
+const impl = { nanoBananaImage, aiLabsImage, socialDownload, toSticker, textToSpeech, webSearch, lyrics, weather, fetchUrl, getApk, aljazeeraNews, sendCodeFile, carbonCode, runCode };
 
 const PRO_TRIGGERS = /(حلل|اشرح|فسر|قارن|كود|برمج|debug|analyze|reasoning|explain|why|كيفاش|علاش|why|compare|solve|حل|رياضيات|math|algorithm|خوارزمي|architect|design)/i;
 
