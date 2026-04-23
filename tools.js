@@ -208,6 +208,103 @@ export async function nanoBananaImage({ prompt, filename }) {
   }
 }
 
+// ──────────────────────────────────────────────────────────────
+// Silana nano-banana (aifaceswap.io) — image edit via prompt
+// NOTE: aifaceswap.io added x-sign anti-bot signing in late 2025 — the
+// silana plugin no longer works. Kept as placeholder; editImage uses
+// the Fireworks I2I path below as a reliable fallback.
+// ──────────────────────────────────────────────────────────────
+const NB_PUBKEY = `-----BEGIN PUBLIC KEY-----
+MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQCwlO+boC6cwRo3UfXVBadaYwcX
+0zKS2fuVNY2qZ0dgwb1NJ+/Q9FeAosL4ONiosD71on3PVYqRUlL5045mvH2K9i8b
+AFVMEip7E6RMK6tKAAif7xzZrXnP1GZ5Rijtqdgwh+YmzTo39cuBCsZqK9oEoeQ3
+r/myG9S+9cR5huTuFQIDAQAB
+-----END PUBLIC KEY-----`;
+const NB_FP = crypto.randomUUID();
+let NB_THEME = null;
+const NB_HEADERS = {
+  "User-Agent": "Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Mobile Safari/537.36",
+  Accept: "application/json, text/plain, */*",
+  origin: "https://aifaceswap.io",
+  referer: "https://aifaceswap.io/nano-banana-ai/",
+};
+let NB_THEME_AT = 0;
+async function nbThemeVersion() {
+  // refresh every 10 min
+  if (NB_THEME && Date.now() - NB_THEME_AT < 600_000) return NB_THEME;
+  try {
+    const html = await (await fetch("https://aifaceswap.io/nano-banana-ai/")).text();
+    const direct = html.match(/data-kt-theme-version="([^"]+)"/);
+    if (direct && direct[1]) { NB_THEME = direct[1]; NB_THEME_AT = Date.now(); return NB_THEME; }
+    const jsMatch = html.match(/src="([^"]*aifaceswap_nano_banana[^"]*\.js)"/);
+    if (jsMatch) {
+      const url = jsMatch[1].startsWith("http") ? jsMatch[1] : `https://aifaceswap.io${jsMatch[1]}`;
+      const js = await (await fetch(url)).text();
+      const t = js.match(/theme-version"\]\s*\|\|\s*\(\s*r\.headers\["theme-version"\]\s*=\s*"([^"]+)"/) ||
+                js.match(/headers\["theme-version"\]\s*=\s*"([^"]+)"/);
+      if (t) { NB_THEME = t[1]; NB_THEME_AT = Date.now(); return NB_THEME; }
+    }
+  } catch {}
+  if (!NB_THEME) NB_THEME = "EC25Co3HGfI91bGmpWR6JF0JKD+nZ/mD0OYvKNm5WUXcLfKnEE/80DQg60MXcYpM";
+  return NB_THEME;
+}
+async function nbSigs() {
+  const themeVersion = await nbThemeVersion();
+  const aesSecret = crypto.randomBytes(8).toString("hex");
+  const xGuide = crypto
+    .publicEncrypt({ key: NB_PUBKEY, padding: crypto.constants.RSA_PKCS1_PADDING }, Buffer.from(aesSecret, "utf8"))
+    .toString("base64");
+  const cipher = crypto.createCipheriv("aes-128-cbc", Buffer.from(aesSecret), Buffer.from(aesSecret));
+  let fp1 = cipher.update("aifaceswap:" + NB_FP, "utf8", "base64");
+  fp1 += cipher.final("base64");
+  return { fp: NB_FP, fp1, "x-guide": xGuide, "x-code": Date.now().toString(), "theme-version": themeVersion };
+}
+async function nbUpload(buf, ext) {
+  const filename = crypto.randomUUID().replace(/-/g, "") + "." + ext;
+  const sigs = await nbSigs();
+  const r = await fetch("https://aifaceswap.io/api/upload_file", {
+    method: "POST",
+    headers: { ...NB_HEADERS, ...sigs, "Content-Type": "application/json" },
+    body: JSON.stringify({ file_name: filename, type: "image", request_from: 1, origin_from: "4b06e7fa483b761a" }),
+  });
+  const data = await r.json();
+  const putUrl = data.data.url;
+  await fetch(putUrl, {
+    method: "PUT",
+    headers: { "Content-Type": `image/${ext}`, "x-oss-storage-class": "Standard" },
+    body: buf,
+  });
+  return putUrl.split("?")[0].split(".aliyuncs.com/")[1];
+}
+async function nbCreate(imgPath, prompt) {
+  const sigs = await nbSigs();
+  const r = await fetch("https://aifaceswap.io/api/aikit/create", {
+    method: "POST",
+    headers: { ...NB_HEADERS, ...sigs, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      fn_name: "demo-nano-banana-prompt",
+      call_type: 1,
+      input: { prompt, scene: "standard", resolution: "1K", aspect_ratio: "auto", source_images: [imgPath] },
+      consume_type: 0, request_from: 1, origin_from: "4b06e7fa483b761a",
+    }),
+  });
+  const j = await r.json();
+  if (!j?.data?.task_id) throw new Error(`create failed: ${r.status} ${JSON.stringify(j).slice(0,200)}`);
+  return j.data.task_id;
+}
+async function nbStatus(jobId) {
+  const sigs = await nbSigs();
+  const r = await fetch("https://aifaceswap.io/api/aikit/check_status", {
+    method: "POST",
+    headers: { ...NB_HEADERS, ...sigs, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      task_id: jobId, fn_name: "demo-nano-banana-prompt", call_type: 1,
+      request_from: 1, origin_from: "4b06e7fa483b761a",
+    }),
+  });
+  return (await r.json()).data;
+}
+
 export async function editImage({ input, prompt, filename }) {
   try {
     if (!input || !fs.existsSync(input)) return { ok: false, error: "input image path missing or not found" };
@@ -220,7 +317,7 @@ export async function editImage({ input, prompt, filename }) {
       { headers: { "Content-Type": "application/json", Authorization: `Bearer ${FIREWORKS_KEY}` }, timeout: 60000 }
     );
     const taskId = init.data.id || init.data.request_id;
-    if (!taskId) return { ok: false, error: "no task id from fireworks" };
+    if (!taskId) return { ok: false, error: "no task id from edit backend" };
     const result = await fwPoll(model, taskId);
     const res = result.result || {};
     let buf;
@@ -230,14 +327,14 @@ export async function editImage({ input, prompt, filename }) {
     } else if (res.base64) {
       buf = Buffer.from(res.base64, "base64");
     } else {
-      return { ok: false, error: "no image in fireworks response" };
+      return { ok: false, error: "no image in edit response" };
     }
     const file = path.join(IMAGES_DIR, `${safeName(filename, "edit")}.jpg`);
     fs.writeFileSync(file, buf);
     return { ok: true, path: rel(file) };
   } catch (e) {
     const msg = e.response?.data ? (Buffer.isBuffer(e.response.data) ? e.response.data.toString() : JSON.stringify(e.response.data)).slice(0, 200) : e.message;
-    return { ok: false, error: `fireworks I2I failed: ${msg}` };
+    return { ok: false, error: `editImage failed: ${msg}` };
   }
 }
 
