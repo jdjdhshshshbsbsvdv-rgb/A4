@@ -2,7 +2,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import {
   nanoBananaImage, aiLabsImage,
   socialDownload, toSticker, textToSpeech,
-  webSearch, lyrics, weather, fetchUrl, getApk, aljazeeraNews,
+  webSearch, youtubeSearch, lyrics, weather, fetchUrl, getApk, aljazeeraNews,
   sendCodeFile, carbonCode, runCode,
 } from "./tools.js";
 
@@ -22,7 +22,7 @@ export const PERSONA = `أنت عمر، شاب مغربي ودود وذكي من
 - لا تستعمل أبداً الشرطة السفلية ولا الشرطة العادية داخل أي كلمة.
 - لا تنادي أي أداة إلا إذا كانت ضرورية فعلاً للطلب. إذا المستخدم غير كيهضر معاك أو كيعلق، جاوبه بنص فقط.
 - إيلا المستخدم لصق رابط (يوتيوب، تيكتوك، إنستا، فيسبوك، تويتر، رديت، ساوندكلاود...) وطلب صراحة "نزّل" أو "حمّل" أو "ابعث الفيديو/الصوت": استعمل socialDownload.
-- قاعدة مهمة جدا: إيلا المستخدم طلب منك فيديو/أغنية/صوت من غير ما يعطيك رابط (مثلا "جيب ليا فيديو ديال صوت المطر"، "بغيت أغنية فلانة"، "بعت ليا فيديو ديال X")، خاصك أنت تقلب فيوتيوب بنفسك بهاد الخطوات بالضبط: 1) استعمل webSearch مرة وحدة بـ "site:youtube.com <الموضوع>". 2) خود أول رابط يبدا بـ youtube.com/watch أو youtu.be من النتائج. 3) مباشرة ناد socialDownload على ديك الرابط. ممنوع تعاود webSearch مرة أخرى ولا تخدم بأكثر من بحث واحد. ممنوع تقول للمستخدم "بعت ليا الرابط" أو "ما عنديش فيديوهات" — أنت كتقدر تقلب وتحمل بنفسك. إيلا طلب صوت فقط (أغنية، MP3)، عطي type="audio" لـ socialDownload. إيلا webSearch فشل ولا ما لقا والو، قول للمستخدم بصراحة وحط اقتراحات.
+- قاعدة مهمة جدا: إيلا المستخدم طلب منك فيديو/أغنية/صوت من يوتيوب من غير ما يعطيك رابط (مثلا "جيب ليا فيديو ديال صوت المطر"، "بغيت أغنية فلانة"، "بعت ليا فيديو ديال X")، خاصك تخدم بهاد الترتيب الصارم: 1) ناد youtubeSearch مرة وحدة بكلمات مفتاحية إنجليزية وصفية ديال الموضوع. 2) خود حقل top (أو أول نتيجة) من الجواب. 3) مباشرة ناد socialDownload على ديك URL. ممنوع تعاود youtubeSearch ولا تستعمل webSearch لهاد الغرض. ممنوع تقول للمستخدم "بعت ليا الرابط" أو "ما لقيت" قبل ما تجرب youtubeSearch. إيلا طلب صوت فقط (أغنية، MP3)، عطي type="audio" لـ socialDownload. إيلا حتى youtubeSearch فشل، عافد قول للمستخدم بصراحة.
 - إيلا المستخدم لصق أي رابط (يوتيوب بما فيه) وطلب ملخص، شرح، تحليل، ولا سؤال على المحتوى: استعمل fetchUrl مرة وحدة فقط، ثم لخص بنفسك على أساس النتيجة. حتى لو النتيجة قصيرة، خدم بيها وما تناديش webSearch ولا أي أداة أخرى.
 - ممنوع تنادي webSearch لتلخيص رابط. webSearch غير لمّا ما كاينش رابط أصلاً.
 - nanoBananaImage: للصور (وصف إنجليزي مفصل). إذا المستخدم بعت ليك صورة وطلب تعديل، شوف الصورة فالمحادثة وأعد توليد بوصف يطابق التعديل.
@@ -74,6 +74,10 @@ export const tools = [{
       parameters: { type: Type.OBJECT, properties: {
         query: { type: Type.STRING, description: "Search query." },
       }, required: ["query"] } },
+    { name: "youtubeSearch", description: "Search YouTube directly and return real watch URLs. Use this (NOT webSearch) whenever the user wants a YouTube video/song/audio without providing a link. The response includes 'top' (the best URL) which you should pass straight to socialDownload.",
+      parameters: { type: Type.OBJECT, properties: {
+        query: { type: Type.STRING, description: "Descriptive English keywords for the desired video (e.g. 'relaxing rain sounds for sleep 4K nature 1 hour')." },
+      }, required: ["query"] } },
     { name: "lyrics", description: "Get the lyrics of a song.",
       parameters: { type: Type.OBJECT, properties: {
         artist: { type: Type.STRING, description: "Artist name." },
@@ -116,7 +120,7 @@ export const tools = [{
   ],
 }];
 
-const impl = { nanoBananaImage, aiLabsImage, socialDownload, toSticker, textToSpeech, webSearch, lyrics, weather, fetchUrl, getApk, aljazeeraNews, sendCodeFile, carbonCode, runCode };
+const impl = { nanoBananaImage, aiLabsImage, socialDownload, toSticker, textToSpeech, webSearch, youtubeSearch, lyrics, weather, fetchUrl, getApk, aljazeeraNews, sendCodeFile, carbonCode, runCode };
 
 const PRO_TRIGGERS = /(حلل|اشرح|فسر|قارن|كود|برمج|debug|analyze|reasoning|explain|why|كيفاش|علاش|why|compare|solve|حل|رياضيات|math|algorithm|خوارزمي|architect|design)/i;
 
@@ -190,10 +194,10 @@ export async function runTurn(history, userParts, onEvent) {
       }
       if (out.ok) {
         if (out.path) outputs.push({ type: "media", path: out.path, tool: fc.name });
-        if (out.results) outputs.push({ type: "text", text: out.results.map((r, i) => `${i + 1}. ${r.title}\n${r.url}\n${r.snippet}`).join("\n\n") });
+        if (out.results && fc.name === "webSearch") outputs.push({ type: "text", text: out.results.map((r, i) => `${i + 1}. ${r.title}\n${r.url}\n${r.snippet}`).join("\n\n") });
         if (out.lyrics) outputs.push({ type: "text", text: out.lyrics });
       }
-      const compact = { ok: out.ok, error: out.error, path: out.path, summary: out.summary, results: out.results?.slice(0, 5), lyrics: out.lyrics, location: out.location, tempC: out.tempC, description: out.description };
+      const compact = { ok: out.ok, error: out.error, path: out.path, summary: out.summary, results: out.results?.slice(0, 5), top: out.top, lyrics: out.lyrics, location: out.location, tempC: out.tempC, description: out.description };
       responses.push({ functionResponse: { name: fc.name, response: compact } });
     }
     history.push({ role: "user", parts: responses });

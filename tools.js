@@ -717,6 +717,39 @@ export async function webSearch({ query, lang }) {
   } catch (e) { return { ok: false, error: e.message }; }
 }
 
+export async function youtubeSearch({ query }) {
+  if (!query) return { ok: false, error: "empty query" };
+  try {
+    const r = await axios.get("https://www.youtube.com/results", {
+      params: { search_query: query, hl: "en" },
+      headers: {
+        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
+        "accept-language": "en-US,en;q=0.9,ar;q=0.7",
+      },
+      timeout: 20000,
+    });
+    const html = r.data;
+    const ids = [];
+    const seen = new Set();
+    const idRe = /"videoId":"([a-zA-Z0-9_-]{11})"/g;
+    let m;
+    while ((m = idRe.exec(html)) && ids.length < 8) {
+      if (!seen.has(m[1])) { seen.add(m[1]); ids.push(m[1]); }
+    }
+    if (!ids.length) return { ok: false, error: "no youtube results" };
+    const titleMap = {};
+    const tRe = /"videoId":"([a-zA-Z0-9_-]{11})"[^}]*?"title":\{"runs":\[\{"text":"([^"]+)"/g;
+    while ((m = tRe.exec(html))) { if (!titleMap[m[1]]) titleMap[m[1]] = m[2]; }
+    const results = ids.map((id) => ({
+      title: titleMap[id] || "(no title)",
+      url: `https://www.youtube.com/watch?v=${id}`,
+    }));
+    return { ok: true, results, top: results[0].url };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
+}
+
 export async function lyrics({ artist, title }) {
   if (!artist || !title) return { ok: false, error: "need artist and title" };
   try {
