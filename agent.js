@@ -3,7 +3,7 @@ import {
   nanoBananaImage, aiLabsImage, bratVideo,
   socialDownload, toSticker, textToSpeech,
   webSearch, lyrics, weather, fetchUrl, getApk, aljazeeraNews,
-  sendCodeFile, carbonCode,
+  sendCodeFile, carbonCode, runCode,
 } from "./tools.js";
 
 if (!process.env.AI_INTEGRATIONS_GEMINI_BASE_URL || !process.env.AI_INTEGRATIONS_GEMINI_API_KEY) {
@@ -36,6 +36,7 @@ export const PERSONA = `أنت عمر، شاب مغربي ودود وذكي من
 - getApk: لمّا المستخدم يطلب تطبيق أندرويد (APK)، مثلاً "بعت ليا واتساب" أو "تيليجرام apk" أو "حمل ليا تطبيق X". تقدر تعطيها اسم التطبيق بالإنجليزية أو معرف الباكدج (com.example.app). كتجيب APK من APKPure مباشرة بدون حساب جوجل.
 - aljazeeraNews: لمّا المستخدم يطلب أخبار عاجلة، الأخبار العربية، أخبار الشرق الأوسط، أو يقول "الجزيرة"، "أش الجديد"، "آخر الأخبار". كتجيب العناوين العاجلة والتغطية المباشرة من aljazeera.net مباشرة. بعد ما تستعملها، لخص الأخبار للمستخدم بالدارجة بشكل واضح ومرتب.
 - sendCodeFile: قاعدة مهمة جدا — كل مرة كتبغي تبعث كود برمجة (أكثر من 5 أسطر، أو أي ملف كامل، أو أي script)، خاصك تستعمل هاد الأداة وتبعتو كملف بالامتداد المناسب حسب اللغة (js, py, java, html, css, sql, sh, json...). متبعتش الكود فالنص العادي. غير الأمثلة القصيرة (سطر ولا سطرين) ممكن تبعتهم inline. عطي اسم ملف وصفي قصير (snake_case أو camelCase). بعد ما تبعت الملف، تقدر تزيد شرح قصير بالنص.
+- runCode: لمّا المستخدم يطلب تخدم/تنفذ شي كود (Python، JavaScript، Bash)، أو يقول "خدمو"، "شوف النتيجة"، "حسب ليا"، "run"، "execute"، أو يعطيك مسألة خاصها حساب/algorithm وتبغي تتأكد من الجواب. كتولي ترجع stdout و stderr. كاين timeout 20 ثانية. استعملها باش تختبر الكود قبل ما تعطيه للمستخدم، أو باش تجاوب على أسئلة حسابية معقدة بـ Python.
 - carbonCode: لمّا المستخدم يطلب صراحة "صورة كود" أو "carbon" أو "اعمل ليا الكود فصورة" أو "screenshot ديال الكود"، استعمل هاد الأداة باش تولّد صورة جميلة ديال الكود (بحال carbon.now.sh). اختار theme مناسب: dracula (افتراضي)، monokai، nord، one-dark، synthwave-84، night-owl، vscode، material. متستعملهاش لإرسال الكود العادي — للكود العادي خدم بـ sendCodeFile.
 المنطق فوق كل شيء: فكر شنو طلب المستخدم بالضبط، واختار الأداة المناسبة، أو ماتستعمل حتى وحدة وجاوب بنص فقط. تذكر السياق ديال المحادثة وما تعاودش نفس الأداة بدون داعي.`;
 
@@ -104,6 +105,12 @@ export const tools = [{
         language: { type: Type.STRING, description: "Programming language name: javascript, typescript, python, java, kotlin, swift, c, cpp, csharp, go, rust, ruby, php, bash, powershell, html, css, sql, json, yaml, xml, dart, lua, r, vue, svelte, dockerfile, makefile, etc." },
         filename: { type: Type.STRING, description: "Short descriptive base name without extension, ascii letters/digits/underscore only (e.g. hello_world, app, server)." },
       }, required: ["code", "language", "filename"] } },
+    { name: "runCode", description: "Execute code in a sandboxed subprocess and return stdout/stderr. Supports python, javascript (node), and bash. 20 second timeout. Use to verify code works, compute heavy math, run algorithms, test snippets, or answer 'what does this code output?' questions.",
+      parameters: { type: Type.OBJECT, properties: {
+        code: { type: Type.STRING, description: "The full source code to execute." },
+        language: { type: Type.STRING, description: "One of: python | javascript | bash" },
+        stdin: { type: Type.STRING, description: "Optional standard input to feed the program." },
+      }, required: ["code", "language"] } },
     { name: "carbonCode", description: "Render programming code as a beautiful syntax-highlighted image (carbon.now.sh style). Use ONLY when the user explicitly asks for a code screenshot/image/picture, says 'carbon', 'صورة كود', or wants the code as an image. For normal code delivery use sendCodeFile.",
       parameters: { type: Type.OBJECT, properties: {
         code: { type: Type.STRING, description: "The source code to render." },
@@ -115,7 +122,7 @@ export const tools = [{
   ],
 }];
 
-const impl = { nanoBananaImage, aiLabsImage, bratVideo, socialDownload, toSticker, textToSpeech, webSearch, lyrics, weather, fetchUrl, getApk, aljazeeraNews, sendCodeFile, carbonCode };
+const impl = { nanoBananaImage, aiLabsImage, bratVideo, socialDownload, toSticker, textToSpeech, webSearch, lyrics, weather, fetchUrl, getApk, aljazeeraNews, sendCodeFile, carbonCode, runCode };
 
 const PRO_TRIGGERS = /(حلل|اشرح|فسر|قارن|كود|برمج|debug|analyze|reasoning|explain|why|كيفاش|علاش|why|compare|solve|حل|رياضيات|math|algorithm|خوارزمي|architect|design)/i;
 

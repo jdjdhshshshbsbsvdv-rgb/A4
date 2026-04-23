@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { execSync, execFileSync } from "node:child_process";
+import { execSync, execFileSync, spawn } from "node:child_process";
 import axios from "axios";
 import FormData from "form-data";
 import { GoogleGenAI, Modality } from "@google/genai";
@@ -56,6 +56,54 @@ const CODE_EXT_MAP = {
   makefile: "Makefile",
   text: "txt", txt: "txt", plain: "txt",
 };
+
+export async function runCode({ code, language, stdin }) {
+  if (!code || !String(code).trim()) return { ok: false, error: "empty code" };
+  const lang = String(language || "").toLowerCase().trim();
+  const langMap = {
+    python: { ext: "py", cmd: "python3" }, py: { ext: "py", cmd: "python3" }, python3: { ext: "py", cmd: "python3" },
+    javascript: { ext: "js", cmd: "node" }, js: { ext: "js", cmd: "node" }, node: { ext: "js", cmd: "node" }, nodejs: { ext: "js", cmd: "node" },
+    bash: { ext: "sh", cmd: "bash" }, sh: { ext: "sh", cmd: "bash" }, shell: { ext: "sh", cmd: "bash" },
+  };
+  const cfg = langMap[lang];
+  if (!cfg) return { ok: false, error: `unsupported language '${lang}'. Use python, javascript, or bash.` };
+  const runDir = path.join(process.cwd(), "code_runs");
+  if (!fs.existsSync(runDir)) fs.mkdirSync(runDir, { recursive: true });
+  const id = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  const file = path.join(runDir, `${id}.${cfg.ext}`);
+  fs.writeFileSync(file, String(code));
+  return new Promise((resolve) => {
+    const proc = spawn(cfg.cmd, [file], {
+      cwd: runDir,
+      env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUNBUFFERED: "1" },
+      timeout: 20000,
+    });
+    let stdout = "", stderr = "", killed = false;
+    const MAX = 8000;
+    proc.stdout.on("data", (d) => { if (stdout.length < MAX) stdout += d.toString(); });
+    proc.stderr.on("data", (d) => { if (stderr.length < MAX) stderr += d.toString(); });
+    if (stdin) { try { proc.stdin.write(String(stdin)); proc.stdin.end(); } catch {} }
+    const timer = setTimeout(() => { killed = true; try { proc.kill("SIGKILL"); } catch {} }, 20000);
+    proc.on("close", (codeExit) => {
+      clearTimeout(timer);
+      try { fs.unlinkSync(file); } catch {}
+      const truncate = (s) => s.length >= MAX ? s.slice(0, MAX) + "\n…[truncated]" : s;
+      resolve({
+        ok: !killed && codeExit === 0,
+        language: lang,
+        exitCode: codeExit,
+        stdout: truncate(stdout) || "(no output)",
+        stderr: truncate(stderr) || "",
+        timedOut: killed,
+      });
+    });
+    proc.on("error", (e) => {
+      clearTimeout(timer);
+      try { fs.unlinkSync(file); } catch {}
+      resolve({ ok: false, error: `spawn failed: ${e.message}` });
+    });
+  });
+}
 
 export async function carbonCode({ code, language, filename, theme, background }) {
   if (!code || !String(code).trim()) return { ok: false, error: "empty code" };
