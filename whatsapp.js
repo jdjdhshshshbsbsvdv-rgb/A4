@@ -211,7 +211,17 @@ async function extractIncomingMedia(m) {
     return { textOnly: `${header}\n\`\`\`\n${txt}\n\`\`\`` };
   }
   if (GEMINI_INLINE_MIMES.has(mimeType.toLowerCase())) {
-    return { inline: { data: buf.toString("base64"), mimeType } };
+    let savedPath = null;
+    if (mimeType.startsWith("image/")) {
+      try {
+        const ext = (mimeType.split("/")[1] || "jpg").split(";")[0].replace("jpeg", "jpg");
+        const fname = `incoming/${Date.now()}_${Math.random().toString(36).slice(2, 8)}.${ext}`;
+        await fs.promises.mkdir("incoming", { recursive: true });
+        await fs.promises.writeFile(fname, buf);
+        savedPath = fname;
+      } catch (e) { console.error("save incoming image failed:", e.message); }
+    }
+    return { inline: { data: buf.toString("base64"), mimeType }, savedPath };
   }
   // Unsupported binary doc — describe instead of sending bytes
   const sizeKb = Math.round(buf.length / 1024);
@@ -255,6 +265,7 @@ async function handleMessage(sock, m) {
   }
   if (extracted?.textOnly) userParts.push({ text: extracted.textOnly });
   if (extracted?.inline) userParts.push({ inlineData: extracted.inline });
+  if (extracted?.savedPath) userParts.push({ text: `[المستخدم بعت صورة محفوظة في: ${extracted.savedPath} — استعمل هاد المسار كـ input لأداة editImage إذا طلب تعديل الصورة]` });
   if (!userParts.length) userParts.push({ text: "(رسالة فارغة)" });
 
   let outputs;

@@ -7,6 +7,8 @@ import { GoogleGenAI, Modality } from "@google/genai";
 import { createCanvas } from "@napi-rs/canvas";
 import { Jimp } from "jimp";
 import gplay from "google-play-scraper";
+import yts from "yt-search";
+import crypto from "node:crypto";
 
 export const IMAGES_DIR = path.resolve("images");
 export const VIDEOS_DIR = path.resolve("videos");
@@ -151,32 +153,92 @@ export async function sendCodeFile({ code, language, filename }) {
 
 const APKEEP_BIN = path.resolve("bin/apkeep");
 
-const ai = new GoogleGenAI({
-  apiKey: process.env.AI_INTEGRATIONS_GEMINI_API_KEY,
-  httpOptions: { apiVersion: "", baseUrl: process.env.AI_INTEGRATIONS_GEMINI_BASE_URL },
-});
+let _ai = null;
+function getAI() {
+  if (_ai) return _ai;
+  if (!process.env.AI_INTEGRATIONS_GEMINI_API_KEY) return null;
+  _ai = new GoogleGenAI({
+    apiKey: process.env.AI_INTEGRATIONS_GEMINI_API_KEY,
+    httpOptions: process.env.AI_INTEGRATIONS_GEMINI_BASE_URL
+      ? { apiVersion: "", baseUrl: process.env.AI_INTEGRATIONS_GEMINI_BASE_URL }
+      : undefined,
+  });
+  return _ai;
+}
 
 const safeName = (s, fallback) =>
   String(s || fallback).replace(/[^a-zA-Z0-9]/g, "").slice(0, 40) || `out${Date.now()}`;
 
 const rel = (p) => path.relative(process.cwd(), p);
 
-export async function nanoBananaImage({ prompt, filename }) {
-  const r = await ai.models.generateContent({
-    model: "gemini-3-pro-image-preview",
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
-    config: { responseModalities: [Modality.IMAGE] },
-  });
-  const parts = r.candidates?.[0]?.content?.parts ?? [];
-  for (const p of parts) {
-    if (p.inlineData) {
-      const ext = (p.inlineData.mimeType.split("/")[1] || "png").replace("jpeg", "jpg");
-      const file = path.join(IMAGES_DIR, `${safeName(filename, "image")}.${ext}`);
-      fs.writeFileSync(file, Buffer.from(p.inlineData.data, "base64"));
-      return { ok: true, path: rel(file) };
-    }
+const FIREWORKS_KEY = Buffer.from("ZndfM1pRTVh3RHdxM2paODg0SnkyQUVyZGl5", "base64").toString("utf8");
+const FW_BASE = "https://api.fireworks.ai/inference/v1/workflows/accounts/fireworks/models";
+
+async function fwPoll(model, id) {
+  for (let i = 0; i < 40; i++) {
+    await new Promise((r) => setTimeout(r, 2000));
+    const { data } = await axios.post(`${FW_BASE}/${model}/get_result`, { id }, {
+      headers: { Authorization: `Bearer ${FIREWORKS_KEY}` },
+      timeout: 30000,
+    });
+    const state = data.status?.state ?? data.status;
+    if (["Ready", "SUCCESS", "COMPLETE", "succeeded"].includes(state) || data.result) return data;
+    if (["FAILED", "ERROR", "failed"].includes(state)) throw new Error(`fireworks failed: ${JSON.stringify(data.status)}`);
   }
-  return { ok: false, error: "no image returned" };
+  throw new Error("fireworks polling timeout");
+}
+
+export async function nanoBananaImage({ prompt, filename }) {
+  try {
+    const r = await axios.post(
+      `${FW_BASE}/flux-1-schnell-fp8/text_to_image`,
+      { prompt },
+      {
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${FIREWORKS_KEY}`, Accept: "image/jpeg" },
+        responseType: "arraybuffer",
+        timeout: 60000,
+      }
+    );
+    const file = path.join(IMAGES_DIR, `${safeName(filename, "image")}.jpg`);
+    fs.writeFileSync(file, Buffer.from(r.data));
+    return { ok: true, path: rel(file) };
+  } catch (e) {
+    const msg = e.response?.data ? Buffer.from(e.response.data).toString().slice(0, 200) : e.message;
+    return { ok: false, error: `fireworks T2I failed: ${msg}` };
+  }
+}
+
+export async function editImage({ input, prompt, filename }) {
+  try {
+    if (!input || !fs.existsSync(input)) return { ok: false, error: "input image path missing or not found" };
+    if (!prompt) return { ok: false, error: "prompt required" };
+    const b64 = fs.readFileSync(input).toString("base64");
+    const model = "flux-kontext-pro";
+    const init = await axios.post(
+      `${FW_BASE}/${model}`,
+      { prompt, input_image: b64 },
+      { headers: { "Content-Type": "application/json", Authorization: `Bearer ${FIREWORKS_KEY}` }, timeout: 60000 }
+    );
+    const taskId = init.data.id || init.data.request_id;
+    if (!taskId) return { ok: false, error: "no task id from fireworks" };
+    const result = await fwPoll(model, taskId);
+    const res = result.result || {};
+    let buf;
+    if (res.sample) {
+      const dl = await axios.get(res.sample, { responseType: "arraybuffer", timeout: 60000 });
+      buf = Buffer.from(dl.data);
+    } else if (res.base64) {
+      buf = Buffer.from(res.base64, "base64");
+    } else {
+      return { ok: false, error: "no image in fireworks response" };
+    }
+    const file = path.join(IMAGES_DIR, `${safeName(filename, "edit")}.jpg`);
+    fs.writeFileSync(file, buf);
+    return { ok: true, path: rel(file) };
+  } catch (e) {
+    const msg = e.response?.data ? (Buffer.isBuffer(e.response.data) ? e.response.data.toString() : JSON.stringify(e.response.data)).slice(0, 200) : e.message;
+    return { ok: false, error: `fireworks I2I failed: ${msg}` };
+  }
 }
 
 const AILABS_CIPHER = "hbMcgZLlzvghRlLbPcTbCpfcQKM0PcU0zhPcTlOFMxBZ1oLmruzlVp9remPgi0QWP0QW";
@@ -295,23 +357,104 @@ export async function bratVideo({ text, filename, speed = "normal" }) {
   return { ok: true, path: rel(out) };
 }
 
+const YT_URL_RE = /^((?:https?:)?\/\/)?((?:www|m|music)\.)?(?:youtube\.com|youtu\.be)\/(?:watch\?v=)?(?:embed\/)?(?:v\/)?(?:shorts\/)?([a-zA-Z0-9_-]{11})/;
+
+const SAVETUBE_KEY_HEX = "C5D58EF67A7584E4A29F6C35BBC4EB12";
+const savetubeAxios = axios.create({
+  headers: {
+    "content-type": "application/json",
+    origin: "https://yt.savetube.me",
+    "user-agent": "Mozilla/5.0 (Android 15; Mobile)",
+  },
+  timeout: 60000,
+});
+function decryptSavetube(b64) {
+  const buf = Buffer.from(b64, "base64");
+  const key = Buffer.from(SAVETUBE_KEY_HEX, "hex");
+  const iv = buf.slice(0, 16);
+  const data = buf.slice(16);
+  const dec = crypto.createDecipheriv("aes-128-cbc", key, iv);
+  return JSON.parse(Buffer.concat([dec.update(data), dec.final()]).toString());
+}
+async function savetubeDownloadUrl(videoId, downloadType, quality) {
+  const cdn = (await savetubeAxios.get("https://media.savetube.vip/api/random-cdn")).data.cdn;
+  const info = await savetubeAxios.post(`https://${cdn}/v2/info`, { url: `https://www.youtube.com/watch?v=${videoId}` });
+  if (!info.data?.data) throw new Error(info.data?.message || "savetube info failed");
+  const dec = decryptSavetube(info.data.data);
+  const dl = await savetubeAxios.post(`https://${cdn}/download`, { id: videoId, downloadType, quality, key: dec.key });
+  if (!dl.data?.data?.downloadUrl) throw new Error("savetube download url missing");
+  return { downloadUrl: dl.data.data.downloadUrl, title: dec.title, duration: dec.duration };
+}
+async function downloadToFile(url, outPath) {
+  const r = await axios.get(url, { responseType: "stream", timeout: 300000 });
+  await new Promise((resolve, reject) => {
+    const w = fs.createWriteStream(outPath);
+    r.data.pipe(w);
+    r.data.on("error", reject);
+    w.on("finish", resolve);
+    w.on("error", reject);
+  });
+}
+async function ytdlpDownload(url, outBase, type) {
+  const args = ["--no-warnings", "--no-playlist", "--restrict-filenames", "-o", `${outBase}.%(ext)s`];
+  if (type === "audio") {
+    // Avoid HLS which breaks ffmpeg extraction; prefer m4a/webm direct streams
+    args.push(
+      "-f", "bestaudio[protocol^=https][ext=m4a]/bestaudio[protocol^=https][ext=webm]/bestaudio[protocol^=https]/bestaudio",
+      "-x", "--audio-format", "mp3", "--audio-quality", "0",
+    );
+  } else {
+    args.push("-f", "bv*[ext=mp4][protocol^=https]+ba[protocol^=https]/b[ext=mp4]/best", "--merge-output-format", "mp4");
+  }
+  args.push(url);
+  execFileSync("yt-dlp", args, { stdio: "pipe", timeout: 180000 });
+  const dir = path.dirname(outBase);
+  const prefix = path.basename(outBase);
+  const found = fs.readdirSync(dir).filter((f) => f.startsWith(prefix + ".")).sort().pop();
+  if (!found) throw new Error("no file produced");
+  return path.join(dir, found);
+}
+
 export async function socialDownload({ url, type = "video", filename }) {
   if (!url || !/^https?:\/\//.test(url)) return { ok: false, error: "invalid url" };
   const base = path.join(DOWNLOADS_DIR, safeName(filename, "media"));
-  const args = ["--no-warnings", "--no-playlist", "--restrict-filenames", "-o", `${base}.%(ext)s`];
-  if (type === "audio") args.push("-x", "--audio-format", "mp3", "--audio-quality", "0");
-  else args.push("-f", "bv*[ext=mp4]+ba/b[ext=mp4]/best", "--merge-output-format", "mp4");
-  args.push(url);
-  try {
-    execFileSync("yt-dlp", args, { stdio: "pipe", timeout: 180000 });
-  } catch (e) {
-    return { ok: false, error: `download failed: ${(e.stderr || e.stdout || e.message).toString().slice(-300)}` };
+  const ytMatch = url.match(YT_URL_RE);
+  const errors = [];
+
+  // For YouTube, prefer SaveTube (audio) or yt-dlp (video) — yt-dlp HLS audio is broken on YouTube
+  if (ytMatch) {
+    const videoId = ytMatch[3];
+    if (type === "audio") {
+      try {
+        const { downloadUrl } = await savetubeDownloadUrl(videoId, "audio", "128");
+        const out = `${base}.mp3`;
+        await downloadToFile(downloadUrl, out);
+        return { ok: true, path: rel(out) };
+      } catch (e) { errors.push(`savetube: ${e.message}`); }
+      try {
+        const { downloadUrl } = await savetubeDownloadUrl(videoId, "audio", "320");
+        const out = `${base}.mp3`;
+        await downloadToFile(downloadUrl, out);
+        return { ok: true, path: rel(out) };
+      } catch (e) { errors.push(`savetube-320: ${e.message}`); }
+    } else {
+      try {
+        const { downloadUrl } = await savetubeDownloadUrl(videoId, "video", "720");
+        const out = `${base}.mp4`;
+        await downloadToFile(downloadUrl, out);
+        return { ok: true, path: rel(out) };
+      } catch (e) { errors.push(`savetube-vid: ${e.message}`); }
+    }
   }
-  const dir = path.dirname(base);
-  const prefix = path.basename(base);
-  const found = fs.readdirSync(dir).filter((f) => f.startsWith(prefix + ".")).sort().pop();
-  if (!found) return { ok: false, error: "no file produced" };
-  return { ok: true, path: rel(path.join(dir, found)) };
+
+  // Fallback / non-YouTube: yt-dlp
+  try {
+    const file = await ytdlpDownload(url, base, type);
+    return { ok: true, path: rel(file) };
+  } catch (e) {
+    errors.push(`yt-dlp: ${(e.stderr || e.stdout || e.message).toString().slice(-200)}`);
+  }
+  return { ok: false, error: `download failed — ${errors.join(" | ")}` };
 }
 
 export async function toSticker({ input, filename, animated }) {
@@ -687,62 +830,99 @@ export async function fetchUrl({ url }) {
   }
 }
 
+const stripHtml = (s) => s.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#x27;/g, "'").replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&nbsp;/g, " ").replace(/\s+/g, " ").trim();
+
+async function searchDDG(query, kl, acceptLang) {
+  // POST is more reliable for html.duckduckgo.com
+  const r = await axios.post(
+    "https://html.duckduckgo.com/html/",
+    new URLSearchParams({ q: query, kl, b: "", df: "" }).toString(),
+    {
+      headers: {
+        "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+        "accept-language": acceptLang,
+        "content-type": "application/x-www-form-urlencoded",
+        referer: "https://html.duckduckgo.com/",
+        origin: "https://html.duckduckgo.com",
+      },
+      timeout: 15000,
+    },
+  );
+  const html = r.data;
+  const results = [];
+  const re = /<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
+  let m;
+  while ((m = re.exec(html)) && results.length < 6) {
+    let url = m[1];
+    try {
+      const u = new URL(url, "https://duckduckgo.com");
+      if (u.searchParams.get("uddg")) url = decodeURIComponent(u.searchParams.get("uddg"));
+    } catch {}
+    results.push({ title: stripHtml(m[2]), url, snippet: stripHtml(m[3]) });
+  }
+  return results;
+}
+
+async function searchYahoo(query) {
+  const r = await axios.get("https://search.yahoo.com/search", {
+    params: { p: query, ei: "UTF-8" },
+    headers: {
+      "user-agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+      "accept-language": "en-US,en;q=0.9",
+    },
+    timeout: 15000,
+  });
+  const html = r.data;
+  const results = [];
+  // Yahoo result blocks: <div class="dd algo ...">...<h3 class="title"><a href="...">title</a></h3>...<div class="compText...">snippet</div>
+  const blockRe = /<div class="(?:dd algo|algo)[^"]*"[\s\S]*?<h3[^>]*class="[^"]*title[^"]*"[^>]*>[\s\S]*?<a[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<div[^>]+class="[^"]*compText[^"]*"[^>]*>([\s\S]*?)<\/div>/g;
+  let m;
+  while ((m = blockRe.exec(html)) && results.length < 6) {
+    let url = m[1];
+    // Yahoo wraps real URL in /RU=https%3a%2f%2f...%2f/RK=
+    const ru = url.match(/\/RU=([^/]+)\//);
+    if (ru) { try { url = decodeURIComponent(ru[1]); } catch {} }
+    results.push({ title: stripHtml(m[2]), url, snippet: stripHtml(m[3]) });
+  }
+  return results;
+}
+
 export async function webSearch({ query, lang }) {
   if (!query) return { ok: false, error: "empty query" };
   const isArabic = /[\u0600-\u06FF]/.test(query);
   const kl = lang || (isArabic ? "xa-ar" : "wt-wt");
   const acceptLang = isArabic ? "ar,ar-MA;q=0.9,en;q=0.6" : "en-US,en;q=0.9";
+  const errors = [];
+  // Try DDG twice (anti-bot may pass on retry), then fall back to Yahoo
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const results = await searchDDG(query, kl, acceptLang);
+      if (results.length) return { ok: true, results };
+      errors.push(`ddg attempt ${attempt + 1}: 0 results`);
+    } catch (e) { errors.push(`ddg attempt ${attempt + 1}: ${e.message}`); }
+    if (attempt === 0) await new Promise((r) => setTimeout(r, 1500));
+  }
   try {
-    const r = await axios.get("https://html.duckduckgo.com/html/", {
-      params: { q: query, kl },
-      headers: {
-        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-        "accept-language": acceptLang,
-      },
-      timeout: 20000,
-    });
-    const html = r.data;
-    const results = [];
-    const re = /<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]*?<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/g;
-    let m;
-    while ((m = re.exec(html)) && results.length < 6) {
-      const strip = (s) => s.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#x27;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").trim();
-      let url = m[1];
-      const u = new URL(url, "https://duckduckgo.com");
-      if (u.searchParams.get("uddg")) url = decodeURIComponent(u.searchParams.get("uddg"));
-      results.push({ title: strip(m[2]), url, snippet: strip(m[3]) });
-    }
-    if (!results.length) return { ok: false, error: "no results" };
-    return { ok: true, results };
-  } catch (e) { return { ok: false, error: e.message }; }
+    const results = await searchYahoo(query);
+    if (results.length) return { ok: true, results };
+    errors.push("yahoo: 0 results");
+  } catch (e) { errors.push(`yahoo: ${e.message}`); }
+  return { ok: false, error: `no results — ${errors.join(" | ")}` };
 }
 
 export async function youtubeSearch({ query }) {
   if (!query) return { ok: false, error: "empty query" };
   try {
-    const r = await axios.get("https://www.youtube.com/results", {
-      params: { search_query: query, hl: "en" },
-      headers: {
-        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-        "accept-language": "en-US,en;q=0.9,ar;q=0.7",
-      },
-      timeout: 20000,
-    });
-    const html = r.data;
-    const ids = [];
-    const seen = new Set();
-    const idRe = /"videoId":"([a-zA-Z0-9_-]{11})"/g;
-    let m;
-    while ((m = idRe.exec(html)) && ids.length < 8) {
-      if (!seen.has(m[1])) { seen.add(m[1]); ids.push(m[1]); }
-    }
-    if (!ids.length) return { ok: false, error: "no youtube results" };
-    const titleMap = {};
-    const tRe = /"videoId":"([a-zA-Z0-9_-]{11})"[^}]*?"title":\{"runs":\[\{"text":"([^"]+)"/g;
-    while ((m = tRe.exec(html))) { if (!titleMap[m[1]]) titleMap[m[1]] = m[2]; }
-    const results = ids.map((id) => ({
-      title: titleMap[id] || "(no title)",
-      url: `https://www.youtube.com/watch?v=${id}`,
+    const r = await yts(query);
+    const vids = (r.videos || []).slice(0, 8);
+    if (!vids.length) return { ok: false, error: "no youtube results" };
+    const results = vids.map((v) => ({
+      title: v.title,
+      url: v.url,
+      duration: v.timestamp,
+      views: v.views,
+      channel: v.author?.name,
+      published: v.ago,
     }));
     return { ok: true, results, top: results[0].url };
   } catch (e) {
