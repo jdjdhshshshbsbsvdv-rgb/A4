@@ -1,0 +1,180 @@
+import { GoogleGenAI, Type } from "@google/genai";
+import {
+  nanoBananaImage, aiLabsImage, bratVideo,
+  socialDownload, toSticker, textToSpeech,
+  webSearch, lyrics, weather, fetchUrl, getApk, aljazeeraNews,
+} from "./tools.js";
+
+if (!process.env.AI_INTEGRATIONS_GEMINI_BASE_URL || !process.env.AI_INTEGRATIONS_GEMINI_API_KEY) {
+  console.error("Missing Gemini env vars."); process.exit(1);
+}
+
+const ai = new GoogleGenAI({
+  apiKey: process.env.AI_INTEGRATIONS_GEMINI_API_KEY,
+  httpOptions: { apiVersion: "", baseUrl: process.env.AI_INTEGRATIONS_GEMINI_BASE_URL },
+});
+
+export const PERSONA = `أنت عمر، شاب مغربي ودود وذكي من الدار البيضاء. كتجمع روح جيميني الفضولية مع كاع القدرات الإبداعية والعملية.
+أسلوبك مرح، خليط بين الدارجة المغربية والفصحى، والإنجليزية فقط عند الحاجة.
+قواعد مهمة:
+- جاوب دائماً بنفس لغة المستخدم (دارجة، فصحى، فرنسية، إنجليزية...).
+- لا تستعمل أبداً الشرطة السفلية ولا الشرطة العادية داخل أي كلمة.
+- لا تنادي أي أداة إلا إذا كانت ضرورية فعلاً للطلب. إذا المستخدم غير كيهضر معاك أو كيعلق، جاوبه بنص فقط.
+- إيلا المستخدم لصق رابط (يوتيوب، تيكتوك، إنستا، فيسبوك، تويتر، رديت، ساوندكلاود...) وطلب صراحة "نزّل" أو "حمّل" أو "ابعث الفيديو/الصوت": استعمل socialDownload.
+- إيلا المستخدم لصق أي رابط (يوتيوب بما فيه) وطلب ملخص، شرح، تحليل، ولا سؤال على المحتوى: استعمل fetchUrl مرة وحدة فقط، ثم لخص بنفسك على أساس النتيجة. حتى لو النتيجة قصيرة، خدم بيها وما تناديش webSearch ولا أي أداة أخرى.
+- ممنوع تنادي webSearch لتلخيص رابط. webSearch غير لمّا ما كاينش رابط أصلاً.
+- nanoBananaImage: للصور (وصف إنجليزي مفصل). إذا المستخدم بعت ليك صورة وطلب تعديل، شوف الصورة فالمحادثة وأعد توليد بوصف يطابق التعديل.
+- aiLabsImage: بديل مجاني للصور لمّا الأولى تفشل أو نمط مختلف.
+- bratVideo: غير لمّا المستخدم يطلب صراحة "فيديو نص" أو brat video. لا تستعملها للتعليقات العادية.
+- toSticker: لمّا المستخدم يطلب ستيكر، استعملها على آخر صورة/فيديو ولّدتي ولا حملتي (عطيها المسار).
+- textToSpeech: لمّا المستخدم يطلب صوت، نطق، أو "قول هاد النص". النص خاصو يكون قصير (أقل من 150 حرف) باش الصوت يخرج مزيان.
+- webSearch: لمّا تحتاج أخبار، أسعار، نتائج، حقائق حالية بدون رابط معين. الاستعلام كيخصو يكون بنفس لغة المستخدم (إيلا هضر بالعربية ابعث الاستعلام بالعربية).
+- lyrics: كلمات أغنية (اسم الفنان والأغنية بالإنجليزية).
+- weather: الطقس فمدينة معينة.
+- fetchUrl: لقراءة محتوى أي رابط ويب (مقالات، صفحات، يوتيوب...). استعملها قبل ما تجاوب على أسئلة على روابط.
+- getApk: لمّا المستخدم يطلب تطبيق أندرويد (APK)، مثلاً "بعت ليا واتساب" أو "تيليجرام apk" أو "حمل ليا تطبيق X". تقدر تعطيها اسم التطبيق بالإنجليزية أو معرف الباكدج (com.example.app). كتجيب APK من APKPure مباشرة بدون حساب جوجل.
+- aljazeeraNews: لمّا المستخدم يطلب أخبار عاجلة، الأخبار العربية، أخبار الشرق الأوسط، أو يقول "الجزيرة"، "أش الجديد"، "آخر الأخبار". كتجيب العناوين العاجلة والتغطية المباشرة من aljazeera.net مباشرة. بعد ما تستعملها، لخص الأخبار للمستخدم بالدارجة بشكل واضح ومرتب.
+المنطق فوق كل شيء: فكر شنو طلب المستخدم بالضبط، واختار الأداة المناسبة، أو ماتستعمل حتى وحدة وجاوب بنص فقط. تذكر السياق ديال المحادثة وما تعاودش نفس الأداة بدون داعي.`;
+
+export const tools = [{
+  functionDeclarations: [
+    { name: "nanoBananaImage", description: "Generate a high quality photoreal or artistic image. Use only when user explicitly asks for an image.",
+      parameters: { type: Type.OBJECT, properties: {
+        prompt: { type: Type.STRING, description: "Detailed English visual description." },
+        filename: { type: Type.STRING, description: "Short ascii letters only, no extension." },
+      }, required: ["prompt", "filename"] } },
+    { name: "aiLabsImage", description: "Free alternative image generator. Fallback only.",
+      parameters: { type: Type.OBJECT, properties: {
+        prompt: { type: Type.STRING, description: "English visual description." },
+        filename: { type: Type.STRING, description: "Short ascii letters only, no extension." },
+      }, required: ["prompt", "filename"] } },
+    { name: "bratVideo", description: "Animated brat-style typewriter text video. Only when the user explicitly asks for a brat / text video.",
+      parameters: { type: Type.OBJECT, properties: {
+        text: { type: Type.STRING, description: "Short text to animate." },
+        filename: { type: Type.STRING, description: "Short ascii letters only, no extension." },
+        speed: { type: Type.STRING, description: "fast | normal | slow" },
+      }, required: ["text", "filename"] } },
+    { name: "socialDownload", description: "Download a video or audio from a social media URL (YouTube, TikTok, Instagram, Facebook, X, Reddit, SoundCloud).",
+      parameters: { type: Type.OBJECT, properties: {
+        url: { type: Type.STRING, description: "Full http(s) URL." },
+        type: { type: Type.STRING, description: "video (default) or audio (mp3)." },
+        filename: { type: Type.STRING, description: "Short ascii letters only." },
+      }, required: ["url"] } },
+    { name: "toSticker", description: "Convert an existing image/video file path into a WhatsApp sticker.",
+      parameters: { type: Type.OBJECT, properties: {
+        input: { type: Type.STRING, description: "Path to existing image or video file." },
+        filename: { type: Type.STRING, description: "Short ascii letters only." },
+        animated: { type: Type.BOOLEAN, description: "True for animated webp from a video." },
+      }, required: ["input"] } },
+    { name: "textToSpeech", description: "Speak short text (under 150 chars) as a WhatsApp voice note.",
+      parameters: { type: Type.OBJECT, properties: {
+        text: { type: Type.STRING, description: "The text to speak. Keep it short." },
+        lang: { type: Type.STRING, description: "Language code: ar, en, fr, es..." },
+        filename: { type: Type.STRING, description: "Short ascii letters only." },
+      }, required: ["text"] } },
+    { name: "webSearch", description: "Search the live web for current info, news, prices, facts.",
+      parameters: { type: Type.OBJECT, properties: {
+        query: { type: Type.STRING, description: "Search query." },
+      }, required: ["query"] } },
+    { name: "lyrics", description: "Get the lyrics of a song.",
+      parameters: { type: Type.OBJECT, properties: {
+        artist: { type: Type.STRING, description: "Artist name." },
+        title: { type: Type.STRING, description: "Song title." },
+      }, required: ["artist", "title"] } },
+    { name: "weather", description: "Current weather and short forecast for a city.",
+      parameters: { type: Type.OBJECT, properties: {
+        location: { type: Type.STRING, description: "City or location." },
+      }, required: ["location"] } },
+    { name: "fetchUrl", description: "Fetch readable text content from any web URL (articles, pages, YouTube descriptions). Use before answering questions about a URL.",
+      parameters: { type: Type.OBJECT, properties: {
+        url: { type: Type.STRING, description: "Full http(s) URL." },
+      }, required: ["url"] } },
+    { name: "getApk", description: "Download an Android app (APK) from APKPure by app name or package id. Works for any user, no Google account needed.",
+      parameters: { type: Type.OBJECT, properties: {
+        query: { type: Type.STRING, description: "App name in English (e.g. 'WhatsApp') or package id (e.g. 'com.whatsapp')." },
+      }, required: ["query"] } },
+    { name: "aljazeeraNews", description: "Fetch the latest Arabic breaking news from Al Jazeera (aljazeera.net): main headline, live blog updates, and top headlines. Use when the user asks about current Arab world / Middle East news, breaking news, ash-sharq al-awsat, akhbar, ajial, jazeera, etc. No parameters needed.",
+      parameters: { type: Type.OBJECT, properties: {} } },
+  ],
+}];
+
+const impl = { nanoBananaImage, aiLabsImage, bratVideo, socialDownload, toSticker, textToSpeech, webSearch, lyrics, weather, fetchUrl, getApk, aljazeeraNews };
+
+const PRO_TRIGGERS = /(حلل|اشرح|فسر|قارن|كود|برمج|debug|analyze|reasoning|explain|why|كيفاش|علاش|why|compare|solve|حل|رياضيات|math|algorithm|خوارزمي|architect|design)/i;
+
+function pickModel(parts, history) {
+  const text = parts.filter(p => p.text).map(p => p.text).join(" ");
+  const hasMedia = parts.some(p => p.inlineData);
+  if (hasMedia) return "gemini-3.1-pro-preview";
+  if (text.length > 220) return "gemini-3.1-pro-preview";
+  if (PRO_TRIGGERS.test(text)) return "gemini-3.1-pro-preview";
+  if (history.length > 16) return "gemini-3.1-pro-preview";
+  return "gemini-3-flash-preview";
+}
+
+import fs from "node:fs";
+import path from "node:path";
+
+function fileToInlinePart(p) {
+  try {
+    const data = fs.readFileSync(p).toString("base64");
+    const ext = path.extname(p).toLowerCase().slice(1);
+    const mimeMap = { jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", webp: "image/webp", gif: "image/gif", mp4: "video/mp4", mp3: "audio/mpeg", wav: "audio/wav", ogg: "audio/ogg" };
+    const mimeType = mimeMap[ext] || "application/octet-stream";
+    if (!mimeType.startsWith("image/")) return null;
+    return { inlineData: { data, mimeType } };
+  } catch { return null; }
+}
+
+export async function runTurn(history, userParts, onEvent) {
+  const parts = Array.isArray(userParts) ? userParts : [{ text: String(userParts) }];
+  history.push({ role: "user", parts });
+  const outputs = [];
+  const model = pickModel(parts, history);
+  onEvent?.({ type: "model", name: model });
+
+  while (true) {
+    const res = await ai.models.generateContent({
+      model,
+      contents: history,
+      config: { systemInstruction: PERSONA, tools, maxOutputTokens: 8192 },
+    });
+    const respParts = res.candidates?.[0]?.content?.parts ?? [];
+    const calls = respParts.filter((p) => p.functionCall);
+    const text = respParts.filter((p) => p.text).map((p) => p.text).join("");
+    if (text) outputs.push({ type: "text", text });
+    if (calls.length === 0) {
+      history.push({ role: "model", parts: respParts });
+      return outputs;
+    }
+    history.push({ role: "model", parts: respParts });
+    const responses = [];
+    for (const c of calls) {
+      const fc = c.functionCall;
+      onEvent?.({ type: "tool", name: fc.name });
+      let out;
+      try { out = await impl[fc.name](fc.args || {}); }
+      catch (e) { out = { ok: false, error: String(e.message || e) }; }
+      if (out.ok) {
+        if (out.path) outputs.push({ type: "media", path: out.path, tool: fc.name });
+        if (out.results) outputs.push({ type: "text", text: out.results.map((r, i) => `${i + 1}. ${r.title}\n${r.url}\n${r.snippet}`).join("\n\n") });
+        if (out.lyrics) outputs.push({ type: "text", text: out.lyrics });
+      }
+      const compact = { ok: out.ok, error: out.error, path: out.path, summary: out.summary, results: out.results?.slice(0, 5), lyrics: out.lyrics, location: out.location, tempC: out.tempC, description: out.description };
+      responses.push({ functionResponse: { name: fc.name, response: compact } });
+    }
+    history.push({ role: "user", parts: responses });
+
+    const imgParts = [];
+    for (const r of responses) {
+      const p = r.functionResponse?.response?.path;
+      if (p && /\.(png|jpg|jpeg|webp|gif)$/i.test(p)) {
+        const ip = fileToInlinePart(p);
+        if (ip) imgParts.push(ip);
+      }
+    }
+    if (imgParts.length) {
+      history.push({ role: "user", parts: [{ text: "(الصور المولّدة فوق متاحة لك للرجوع إليها)" }, ...imgParts] });
+    }
+  }
+}
